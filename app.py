@@ -5,31 +5,6 @@ import matplotlib.pyplot as plt
 from scipy import integrate, interpolate
 import warnings
 warnings.filterwarnings('ignore')
-import chardet
-import pandas as pd
-
-# 读取文件的前一部分内容用于检测编码（避免读取大文件耗时）
-with open("你的文件.csv", "rb") as f:
-    raw_data = f.read(10000)  # 读取前10000字节足够检测编码
-    result = chardet.detect(raw_data)
-    encoding = result["encoding"]  # 获取检测到的编码
-    confidence = result["confidence"]  # 检测置信度（0-1）
-
-print(f"检测到的编码：{encoding}，置信度：{confidence:.2f}")
-
-# 用检测到的编码读取文件（如果检测结果为None，默认用GB18030）
-if encoding is None:
-    encoding = "GB18030"
-
-# 读取文件并处理可能的编码别名问题
-try:
-    df = pd.read_csv("你的文件.csv", encoding=encoding)
-except LookupError:
-    # 处理编码别名问题（比如chardet检测出'GB2312'，换成'GB18030'）
-    df = pd.read_csv("你的文件.csv", encoding="GB18030")
-
-print("文件读取成功！")
-print(df.head())
 
 # -------------------------- 全局配置 --------------------------
 # 中文字体设置
@@ -46,11 +21,17 @@ DEFAULT_SUN_FILE = 'AM15太阳辐射_处理后.csv'
 DEFAULT_ATM_FILE = '大气透过率_处理后.csv'
 
 # -------------------------- 基础函数（计算逻辑封装，UI不显示） --------------------------
+import chardet
 def load_default_data(file_path, desc):
-    """加载默认数据，返回DataFrame和基本信息"""
+    """加载默认数据，自动检测编码"""
     try:
-        df = pd.read_csv(file_path)
-        return df, f"✅ 加载成功：{desc}（{len(df)}行数据，波长{df['波长_μm'].min():.2f}-{df['波长_μm'].max():.2f}μm）"
+        # 先检测文件编码
+        with open(file_path, 'rb') as f:
+            result = chardet.detect(f.read())
+            encoding = result['encoding']
+        # 用检测到的编码读取
+        df = pd.read_csv(file_path, encoding=encoding)
+        return df, f"✅ 加载成功：{desc}（{len(df)}行，编码：{encoding}）"
     except Exception as e:
         return pd.DataFrame(), f"❌ 加载失败：{str(e)}"
 
@@ -157,7 +138,10 @@ st.sidebar.markdown("### 4. 辐射冷却器发射率数据（必需）")
 uploaded_eps = st.sidebar.file_uploader("上传发射率CSV（格式：波长_μm, 发射率ε）", type="csv", accept_multiple_files=False)
 if uploaded_eps:
     try:
-        eps_df = pd.read_csv(uploaded_eps)
+        with open(uploaded_eps, 'rb') as f:
+            result = chardet.detect(f.read())
+            encoding = result['encoding']
+        eps_df = pd.read_csv(uploaded_eps, encoding=encoding)
         if not all(col in eps_df.columns for col in ["波长_μm", "发射率ε"]):
             st.sidebar.error("发射率CSV需包含列：波长_μm、发射率ε")
             eps_df = pd.DataFrame()
@@ -212,12 +196,20 @@ if calculate_btn:
         # 1. 加载最终使用的数据（优先用户上传，其次默认）
         # 太阳辐射
         if uploaded_sun:
-            sun_df = pd.read_csv(uploaded_sun)
+            try:
+                with open(uploaded_sun, 'rb') as f:
+                    result = chardet.detect(f.read())
+                    encoding = result['encoding']
+                sun_df = pd.read_csv(uploaded_sun, encoding=encoding)
         else:
             sun_df = sun_df_default if not sun_df_default.empty else st.stop()
         # 大气透过率
         if uploaded_atm:
-            atm_df = pd.read_csv(uploaded_atm)
+             try:
+                with open(uploaded_atm, 'rb') as f:
+                    result = chardet.detect(f.read())
+                    encoding = result['encoding']
+                atm_df = pd.read_csv(uploaded_atm, encoding=encoding)
         else:
             atm_df = atm_df_default if not atm_df_default.empty else st.stop()
 
@@ -349,6 +341,7 @@ if calculate_btn:
         - 最小净制冷功率：{min_pnet:.2f} W/m²
 
         """)
+
 
 
 
