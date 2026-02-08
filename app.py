@@ -24,7 +24,7 @@ DEFAULT_ATM_FILE = '大气透过率_处理后.csv'
 def load_default_data(file_path, desc):
     """加载默认数据，返回DataFrame和基本信息"""
     try:
-        df = pd.read_csv(file_path, encoding='gb18030')
+        df = pd.read_csv(file_path)
         return df, f"✅ 加载成功：{desc}（{len(df)}行数据，波长{df['波长_μm'].min():.2f}-{df['波长_μm'].max():.2f}μm）"
     except Exception as e:
         return pd.DataFrame(), f"❌ 加载失败：{str(e)}"
@@ -134,7 +134,7 @@ st.sidebar.markdown("### 4. 辐射冷却器发射率数据（必需）")
 uploaded_eps = st.sidebar.file_uploader("上传发射率CSV（格式：波长_μm, 发射率ε）", type="csv", accept_multiple_files=False)
 if uploaded_eps:
     try:
-        eps_df = pd.read_csv(uploaded_eps, encoding='gb18030')
+        eps_df = pd.read_csv(uploaded_eps)
         if not all(col in eps_df.columns for col in ["波长_μm", "发射率ε"]):
             st.sidebar.error("发射率CSV需包含列：波长_μm、发射率ε")
             eps_df = pd.DataFrame()
@@ -150,7 +150,7 @@ else:
 # 1.6 动态调整波长范围
 if uploaded_eps:
     try:
-        eps_df = pd.read_csv(uploaded_eps, encoding='gb18030')
+        eps_df = pd.read_csv(uploaded_eps)
         if not all(col in eps_df.columns for col in ["波长_μm", "发射率ε"]):
             st.sidebar.error("发射率CSV需包含列：波长_μm、发射率ε")
             eps_df = pd.DataFrame()
@@ -208,12 +208,12 @@ if calculate_btn:
         # 1. 加载最终使用的数据（优先用户上传，其次默认）
         # 太阳辐射
         if uploaded_sun:
-           sun_df = pd.read_csv(uploaded_sun, encoding='gb18030')
+           sun_df = pd.read_csv(uploaded_sun)
         else:
             sun_df = sun_df_default if not sun_df_default.empty else st.stop()
         # 大气透过率
         if uploaded_atm:
-            atm_df = pd.read_csv(uploaded_atm, encoding='gb18030')
+            atm_df = pd.read_csv(uploaded_atm)
         else:
             atm_df = atm_df_default if not atm_df_default.empty else st.stop()
 
@@ -345,6 +345,7 @@ if calculate_btn:
         - 最小净制冷功率：{min_pnet:.2f} W/m²
 
         """)
+
 
 
 
