@@ -201,15 +201,21 @@ if calculate_btn:
                     result = chardet.detect(f.read())
                     encoding = result['encoding']
                 sun_df = pd.read_csv(uploaded_sun, encoding=encoding)
+            except Exception as e:
+                st.error(f"自定义太阳辐射文件加载失败：{str(e)}")
+                st.stop()
         else:
             sun_df = sun_df_default if not sun_df_default.empty else st.stop()
         # 大气透过率
         if uploaded_atm:
-             try:
+            try:
                 with open(uploaded_atm, 'rb') as f:
                     result = chardet.detect(f.read())
                     encoding = result['encoding']
                 atm_df = pd.read_csv(uploaded_atm, encoding=encoding)
+            except Exception as e:
+                st.error(f"自定义大气透过率文件加载失败：{str(e)}")
+                st.stop()
         else:
             atm_df = atm_df_default if not atm_df_default.empty else st.stop()
 
@@ -341,6 +347,7 @@ if calculate_btn:
         - 最小净制冷功率：{min_pnet:.2f} W/m²
 
         """)
+
 
 
 
