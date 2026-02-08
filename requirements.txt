@@ -4,3 +4,4 @@ numpy
 matplotlib
 scipy
 openpyxl
+chardet  # 新增：编码自动检测
