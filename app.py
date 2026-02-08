@@ -64,22 +64,22 @@ theta_deg = st.sidebar.number_input(
 theta_rad = np.radians(theta_deg)
 st.sidebar.caption(f"当前θ（弧度）：{theta_rad:.4f} rad | cosθ：{np.cos(theta_rad):.4f}")
 
-# 1.2 计算波长范围（默认0.3-20μm）
+# 1.2 计算波长范围（默认0.25-25μm）
 lambda_min = st.sidebar.number_input(
     "波长下限（μm）",
-    value=0.3,
+    value=0.25,
     step=0.1,
     min_value=0.25,
     max_value=5.0,
-    help="默认0.3μm（避开紫外噪声）"
+    help="默认0.25μm（避开紫外噪声）"
 )
 lambda_max = st.sidebar.number_input(
     "波长上限（μm）",
-    value=20.0,
+    value=25.0,
     step=1.0,
     min_value=10.0,
     max_value=25.0,
-    help="默认20μm（覆盖热辐射主要范围）"
+    help="默认25μm（覆盖热辐射主要范围）"
 )
 st.sidebar.caption(f"最终计算波长范围：{lambda_min:.1f}-{lambda_max:.1f} μm")
 
@@ -196,7 +196,7 @@ if calculate_btn:
         else:
             atm_df = atm_df_default if not atm_df_default.empty else st.stop()
 
-        # 2. 生成统一波长网格（0.3-20μm，间隔0.01μm，确保插值精度）
+        # 2. 生成统一波长网格（0.25-25μm，间隔0.01μm，确保插值精度）
         lambda_grid = np.arange(lambda_min, lambda_max + 0.005, 0.01).round(2)  # 0.01μm间隔
         st.success(f"生成统一波长网格：{len(lambda_grid)}个点（{lambda_min:.1f}-{lambda_max:.1f}μm，间隔0.01μm）")
 
@@ -324,3 +324,4 @@ if calculate_btn:
         - 最小净制冷功率：{min_pnet:.2f} W/m²
 
         """)
+
