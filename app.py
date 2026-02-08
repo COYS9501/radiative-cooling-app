@@ -17,8 +17,8 @@ C_LIGHT = 299792458          # 光速 (m/s)
 K_BOLTZMANN = 1.380649e-23   # 玻尔兹曼常数 (J/K)
 
 # 内置文件路径（默认值，用户可替换）
-DEFAULT_SUN_FILE = '/mnt/AM15太阳辐射_处理后.csv'
-DEFAULT_ATM_FILE = '/mnt/大气透过率_处理后.csv'
+DEFAULT_SUN_FILE = 'AM15太阳辐射_处理后.csv'
+DEFAULT_ATM_FILE = '大气透过率_处理后.csv'
 
 # -------------------------- 基础函数（计算逻辑封装，UI不显示） --------------------------
 def load_default_data(file_path, desc):
@@ -322,4 +322,5 @@ if calculate_btn:
         - 实现制冷的组数：{total_cooling} 组（占比 {total_cooling/len(result_df)*100:.1f}%）
         - 最大净制冷功率：{max_pnet:.2f} W/m²（对应Tamb={result_df[result_df['净制冷功率P_net（W/m²）']==max_pnet]['环境温度Tamb（K）'].iloc[0]}K, Trad={result_df[result_df['净制冷功率P_net（W/m²）']==max_pnet]['冷却器温度Trad（K）'].iloc[0]}K）
         - 最小净制冷功率：{min_pnet:.2f} W/m²
+
         """)
