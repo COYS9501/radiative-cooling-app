@@ -24,7 +24,7 @@ DEFAULT_ATM_FILE = '大气透过率_处理后.csv'
 def load_default_data(file_path, desc):
     """加载默认数据，返回DataFrame和基本信息"""
     try:
-        df = pd.read_csv(file_path)
+        df = pd.read_csv(file_path, encoding='gbk')
         return df, f"✅ 加载成功：{desc}（{len(df)}行数据，波长{df['波长_μm'].min():.2f}-{df['波长_μm'].max():.2f}μm）"
     except Exception as e:
         return pd.DataFrame(), f"❌ 加载失败：{str(e)}"
@@ -345,4 +345,5 @@ if calculate_btn:
         - 最小净制冷功率：{min_pnet:.2f} W/m²
 
         """)
+
 
