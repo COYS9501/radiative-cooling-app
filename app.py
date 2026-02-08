@@ -65,21 +65,23 @@ theta_rad = np.radians(theta_deg)
 st.sidebar.caption(f"当前θ（弧度）：{theta_rad:.4f} rad | cosθ：{np.cos(theta_rad):.4f}")
 
 # 1.2 计算波长范围（默认0.3-20μm）
+# 波长下限默认0.25μm
 lambda_min = st.sidebar.number_input(
     "波长下限（μm）",
-    value=0.3,
+    value=0.25,
     step=0.1,
     min_value=0.25,
     max_value=5.0,
-    help="默认0.3μm（避开紫外噪声）"
+    help="默认0.25μm（覆盖太阳辐射起始）"
 )
+# 波长上限默认25μm
 lambda_max = st.sidebar.number_input(
     "波长上限（μm）",
-    value=20.0,
+    value=25.0,
     step=1.0,
     min_value=10.0,
     max_value=25.0,
-    help="默认20μm（覆盖热辐射主要范围）"
+    help="默认25μm（覆盖热辐射全范围）"
 )
 st.sidebar.caption(f"最终计算波长范围：{lambda_min:.1f}-{lambda_max:.1f} μm")
 
@@ -144,6 +146,25 @@ if uploaded_eps:
 else:
     st.sidebar.warning("请上传发射率CSV文件（示例格式：波长_μm=0.3, 发射率ε=0.1；波长_μm=8, 发射率ε=0.95）")
     eps_df = pd.DataFrame()
+
+# 1.6 动态调整波长范围
+if uploaded_eps:
+    try:
+        eps_df = pd.read_csv(uploaded_eps)
+        if not all(col in eps_df.columns for col in ["波长_μm", "发射率ε"]):
+            st.sidebar.error("发射率CSV需包含列：波长_μm、发射率ε")
+            eps_df = pd.DataFrame()
+        else:
+            st.sidebar.success(f"发射率数据加载成功（{len(eps_df)}行，波长{eps_df['波长_μm'].min():.2f}-{eps_df['波长_μm'].max():.2f}μm）")
+            # 动态调整波长范围（取默认范围和发射率范围的交集）
+            eps_lambda_min = eps_df["波长_μm"].min()
+            eps_lambda_max = eps_df["波长_μm"].max()
+            final_lambda_min = max(lambda_min, eps_lambda_min)
+            final_lambda_max = min(lambda_max, eps_lambda_max)
+            st.sidebar.info(f"自动调整波长范围：{final_lambda_min:.2f}-{final_lambda_max:.2f}μm（匹配发射率数据）")
+    except Exception as e:
+        st.sidebar.error(f"发射率数据加载失败：{str(e)}")
+        eps_df = pd.DataFrame()
 
 # ================================= 输出区（主页面） =================================
 st.markdown("### 📊 计算条件汇总")
@@ -324,3 +345,4 @@ if calculate_btn:
         - 最小净制冷功率：{min_pnet:.2f} W/m²
 
         """)
+
