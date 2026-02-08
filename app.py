@@ -5,6 +5,31 @@ import matplotlib.pyplot as plt
 from scipy import integrate, interpolate
 import warnings
 warnings.filterwarnings('ignore')
+import chardet
+import pandas as pd
+
+# 读取文件的前一部分内容用于检测编码（避免读取大文件耗时）
+with open("你的文件.csv", "rb") as f:
+    raw_data = f.read(10000)  # 读取前10000字节足够检测编码
+    result = chardet.detect(raw_data)
+    encoding = result["encoding"]  # 获取检测到的编码
+    confidence = result["confidence"]  # 检测置信度（0-1）
+
+print(f"检测到的编码：{encoding}，置信度：{confidence:.2f}")
+
+# 用检测到的编码读取文件（如果检测结果为None，默认用GB18030）
+if encoding is None:
+    encoding = "GB18030"
+
+# 读取文件并处理可能的编码别名问题
+try:
+    df = pd.read_csv("你的文件.csv", encoding=encoding)
+except LookupError:
+    # 处理编码别名问题（比如chardet检测出'GB2312'，换成'GB18030'）
+    df = pd.read_csv("你的文件.csv", encoding="GB18030")
+
+print("文件读取成功！")
+print(df.head())
 
 # -------------------------- 全局配置 --------------------------
 # 中文字体设置
@@ -324,5 +349,6 @@ if calculate_btn:
         - 最小净制冷功率：{min_pnet:.2f} W/m²
 
         """)
+
 
 
