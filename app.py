@@ -81,7 +81,7 @@ lambda_max = st.sidebar.number_input(
     max_value=25.0,
     help="默认25μm（覆盖热辐射主要范围）"
 )
-st.sidebar.caption(f"最终计算波长范围：{lambda_min:.1f}-{lambda_max:.1f} μm")
+st.sidebar.caption(f"最终计算波长范围：{lambda_min:.2f}-{lambda_max:.2f} μm")
 
 # 1.3 内置文件显示与替换（太阳辐射+大气透过率）
 st.sidebar.markdown("### 2. 内置数据文件（支持自定义替换）")
@@ -161,7 +161,7 @@ with st.expander("点击查看当前计算参数（确认后再运行）", expan
         ],
         "当前值": [
             f"{theta_deg:.1f}°（cosθ={np.cos(theta_rad):.4f}）",
-            f"{lambda_min:.1f}-{lambda_max:.1f} μm",
+            f"{lambda_min:.2f}-{lambda_max:.2f} μm",
             "CODATA 2018（h=6.626e-34 J·s, c=2.998e8 m/s）",
             uploaded_sun.name if uploaded_sun else DEFAULT_SUN_FILE.split('/')[-1],
             uploaded_atm.name if uploaded_atm else DEFAULT_ATM_FILE.split('/')[-1],
@@ -198,7 +198,7 @@ if calculate_btn:
 
         # 2. 生成统一波长网格（0.25-25μm，间隔0.01μm，确保插值精度）
         lambda_grid = np.arange(lambda_min, lambda_max + 0.005, 0.01).round(2)  # 0.01μm间隔
-        st.success(f"生成统一波长网格：{len(lambda_grid)}个点（{lambda_min:.1f}-{lambda_max:.1f}μm，间隔0.01μm）")
+        st.success(f"生成统一波长网格：{len(lambda_grid)}个点（{lambda_min:.2f}-{lambda_max:.2f}μm，间隔0.01μm）")
 
         # 3. 所有曲线插值到统一网格
         # 发射率插值
@@ -324,4 +324,5 @@ if calculate_btn:
         - 最小净制冷功率：{min_pnet:.2f} W/m²
 
         """)
+
 
