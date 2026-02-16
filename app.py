@@ -20,7 +20,7 @@ K_BOLTZMANN = 1.380649e-23 # 玻尔兹曼常数 (J/K)
 DEFAULT_SUN_FILE = 'AM15太阳辐射_处理后.csv'
 DEFAULT_ATM_FILE = '大气透过率_处理后.csv'
 
-# -------------------------- 基础函数（最终修正版） --------------------------
+# -------------------------- 基础函数（终极稳定版） --------------------------
 import chardet
 
 def load_default_data(file_path, desc):
@@ -45,35 +45,39 @@ def planck_law(T_rad, lmbda_m):
     return numerator / denominator
 
 def interpolate_curve(x_target, x_source, y_source, desc):
-    """强化版插值函数（最终修正版）
-    确保始终返回NumPy数组，解决UnboundLocalError问题
+    """终极稳定版插值函数
+    确保始终返回一维NumPy数组，解决所有类型错误
     """
-    # 第一步：校验数据量
-    if len(x_source) < 2 or len(y_source) < 2:
-        st.error(f"{desc}数据不足（<2个有效点），无法插值，返回全零数组")
-        return np.zeros_like(x_target, dtype=np.float64)
-    
-    # 第二步：强制转换为数值数组
+    # 第一步：强制转换为数组
+    x_target = np.asarray(x_target, dtype=np.float64)
     x_source = np.asarray(x_source, dtype=np.float64)
     y_source = np.asarray(y_source, dtype=np.float64)
     
-    # 第三步：过滤NaN值（关键：变量定义在if外，避免作用域问题）
-    valid_mask = ~(np.isnan(x_source) | np.isnan(y_source))
+    # 第二步：校验数据量
+    if len(x_source) < 2 or len(y_source) < 2 or len(x_target) < 1:
+        st.error(f"{desc}数据不足，无法插值，返回全零数组")
+        return np.zeros(len(x_target), dtype=np.float64)
+    
+    # 第三步：过滤NaN和无穷值
+    valid_mask = ~(np.isnan(x_source) | np.isnan(y_source) | np.isinf(x_source) | np.isinf(y_source))
     x_valid = x_source[valid_mask]
     y_valid = y_source[valid_mask]
     
-    # 第四步：再次校验有效数据量
     if len(x_valid) < 2:
         st.error(f"{desc}数据清洗后有效点数不足，返回全零数组")
-        return np.zeros_like(x_target, dtype=np.float64)
+        return np.zeros(len(x_target), dtype=np.float64)
     
-    # 第五步：执行插值，确保返回数组
+    # 第四步：执行插值，确保返回一维数组
     try:
         f = interpolate.interp1d(x_valid, y_valid, bounds_error=False, fill_value='extrapolate')
-        return np.asarray(f(x_target), dtype=np.float64)
+        result = f(x_target)
+        # 确保返回一维数组
+        if result.ndim > 1:
+            result = result.flatten()
+        return np.asarray(result, dtype=np.float64)
     except Exception as e:
         st.error(f"{desc}插值失败：{str(e)}，返回全零数组")
-        return np.zeros_like(x_target, dtype=np.float64)
+        return np.zeros(len(x_target), dtype=np.float64)
 
 # -------------------------- UI页面开发 --------------------------
 st.title("🌞 辐射制冷净功率自动计算系统")
@@ -314,13 +318,15 @@ if calculate_btn:
             if len(atm_df.columns) == 2:
                 atm_df.columns = ["波长_μm", "大气透过率_τatm"]
 
-        # 3. 生成统一波长网格
+        # 3. 生成统一波长网格（强制一维数组）
         lambda_grid = np.arange(lambda_min, lambda_max + 0.005, 0.01).round(2)
+        lambda_grid = np.asarray(lambda_grid, dtype=np.float64)  # 强制数组
         st.success(f"生成统一波长网格：{len(lambda_grid)}个点（{lambda_min:.2f}-{lambda_max:.2f}μm，间隔0.01μm）")
 
-        # 4. 所有曲线插值到统一网格
+        # 4. 所有曲线插值到统一网格（强制一维数组）
         # 发射率插值
         eps_interp = interpolate_curve(lambda_grid, eps_df["波长_μm"], eps_df["发射率ε"], "发射率")
+        eps_interp = np.asarray(eps_interp, dtype=np.float64).flatten()  # 强制一维
 
         # 大气透过率插值（先清洗）
         atm_df["波长_μm"] = pd.to_numeric(atm_df["波长_μm"], errors='coerce')
@@ -330,8 +336,10 @@ if calculate_btn:
             st.error("❌ 大气透过率数据清洗后有效点数不足（<2），无法插值！请检查文件是否包含有效数值。")
             st.stop()
         tau_atm_interp = interpolate_curve(lambda_grid, atm_df_clean["波长_μm"], atm_df_clean["大气透过率_τatm"], "大气透过率")
+        tau_atm_interp = np.asarray(tau_atm_interp, dtype=np.float64).flatten()  # 强制一维
 
-        # 太阳辐射插值（先清洗，仅白天用）
+        # 太阳辐射插值（先清洗，仅白天用，强制一维）
+        sun_interp = np.zeros(len(lambda_grid), dtype=np.float64)  # 初始化默认值
         if is_day:
             sun_df["波长_μm"] = pd.to_numeric(sun_df["波长_μm"], errors='coerce')
             sun_df["太阳辐射强度_Wm-2μm-1"] = pd.to_numeric(sun_df["太阳辐射强度_Wm-2μm-1"], errors='coerce')
@@ -340,8 +348,7 @@ if calculate_btn:
                 st.error("❌ 太阳辐射数据清洗后有效点数不足（<2），无法插值！请检查文件是否包含有效数值。")
                 st.stop()
             sun_interp = interpolate_curve(lambda_grid, sun_df_clean["波长_μm"], sun_df_clean["太阳辐射强度_Wm-2μm-1"], "太阳辐射")
-        else:
-            sun_interp = np.zeros_like(lambda_grid, dtype=np.float64)
+            sun_interp = np.asarray(sun_interp, dtype=np.float64).flatten()  # 强制一维
 
         # 5. 批量计算净功率
         result_list = []
@@ -381,16 +388,31 @@ if calculate_btn:
                     p_atm, _ = integrate.quad(p_atm_integrand, lambda_min, lambda_max)
                     p_atm *= 2 * np.pi
 
-                    # 计算P_sun（太阳辐射，带安全校验）
+                    # 计算P_sun（太阳辐射，终极安全校验）
                     if is_day:
-                        if not isinstance(sun_interp, np.ndarray) or not isinstance(eps_interp, np.ndarray):
-                            st.warning("太阳辐射/发射率插值结果非数组，P_sun按0计算")
+                        try:
+                            # 终极保险：强制转换+维度检查
+                            sun_interp_check = np.asarray(sun_interp, dtype=np.float64).flatten()
+                            eps_interp_check = np.asarray(eps_interp, dtype=np.float64).flatten()
+                            lambda_grid_check = np.asarray(lambda_grid, dtype=np.float64).flatten()
+                            
+                            # 检查所有数组都是一维且长度相同
+                            if (sun_interp_check.ndim == 1 and 
+                                eps_interp_check.ndim == 1 and 
+                                lambda_grid_check.ndim == 1):
+                                
+                                if (len(sun_interp_check) == len(eps_interp_check) == len(lambda_grid_check)):
+                                    # 执行积分计算
+                                    p_sun = integrate.trapz(sun_interp_check * eps_interp_check, lambda_grid_check)
+                                else:
+                                    st.warning(f"数组长度不匹配（太阳辐射：{len(sun_interp_check)}，发射率：{len(eps_interp_check)}，波长网格：{len(lambda_grid_check)}），P_sun按0计算")
+                                    p_sun = 0.0
+                            else:
+                                st.warning("数组维度错误（需一维数组），P_sun按0计算")
+                                p_sun = 0.0
+                        except Exception as e:
+                            st.error(f"P_sun计算失败：{str(e)}，P_sun按0计算")
                             p_sun = 0.0
-                        elif sun_interp.shape != eps_interp.shape or sun_interp.shape != lambda_grid.shape:
-                            st.warning(f"数组形状不匹配，P_sun按0计算")
-                            p_sun = 0.0
-                        else:
-                            p_sun = integrate.trapz(sun_interp * eps_interp, lambda_grid)
                     else:
                         p_sun = 0.0
 
@@ -448,7 +470,7 @@ if calculate_btn:
         else:
             st.warning("无匹配的可视化数据（请检查Tamb/q的中间值是否在计算列表中）")
 
-        # 结果下载（适配本地环境，修改路径为当前目录）
+        # 结果下载（适配本地环境）
         st.markdown("### 📥 结果下载")
         excel_file = "辐射制冷功率计算结果.xlsx"
         with pd.ExcelWriter(excel_file, engine='openpyxl') as writer:
