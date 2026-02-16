@@ -8,9 +8,16 @@ import os
 warnings.filterwarnings('ignore')
 from io import BytesIO
 
-# -------------------------- 全局配置 & 兼容兜底 --------------------------
-plt.rcParams['font.sans-serif'] = ['SimHei', 'DejaVu Sans']
-plt.rcParams['axes.unicode_minus'] = False
+# -------------------------- 全局配置 & 中文乱码终极修复 --------------------------
+# 全环境兼容的中文字体配置，彻底解决乱码
+plt.rcParams['font.sans-serif'] = [
+    'WenQuanYi Micro Hei',  # Streamlit Cloud/Linux环境优先
+    'SimHei',                # Windows环境
+    'PingFang SC',           # Mac环境
+    'DejaVu Sans'            # 兜底通用字体
+]
+plt.rcParams['axes.unicode_minus'] = False  # 解决负号显示为方块的问题
+plt.rcParams['figure.dpi'] = 100  # 图表清晰度优化
 
 # 物理常数（固定不变，行业标准值）
 H_PLANCK = 6.62607015e-34  # J·s
@@ -133,7 +140,7 @@ def interpolate_curve(x_target, x_source, y_source, desc):
         return np.zeros(len(x_target), dtype=np.float64)
 
 # -------------------------- UI页面 --------------------------
-st.title("🌞 辐射制冷净功率自动计算系统（最终稳定版）")
+st.title("🌞 辐射制冷净功率自动计算系统")
 st.markdown("---")
 
 # 侧边栏参数配置
@@ -393,34 +400,48 @@ if calculate_btn:
         with st.expander("查看完整结果表格", expanded=True):
             st.dataframe(result_df, use_container_width=True, height=500)
 
-        # 可视化曲线
-        st.markdown("### 📊 净功率P_net随Trad变化曲线")
+        # -------------------------- 核心优化：多q值同图绘制 --------------------------
+        st.markdown("### 📊 不同对流换热系数q的净功率对比曲线（固定Tamb）")
+        # 固定中间值Tamb，保证对比变量唯一
         tamb_mid = tamb_list[len(tamb_list)//2]
-        q_mid = q_list[len(q_list)//2]
-        plot_df = result_df[(result_df["环境温度Tamb(K)"] == tamb_mid) & (result_df["对流换热系数q(W/(m²·K))"] == q_mid)]
+        # 颜色循环，区分不同q值
+        color_cycle = plt.get_cmap('tab10', len(q_list))
         
-        if len(plot_df) > 0:
-            fig, ax = plt.subplots(figsize=(10, 6))
-            ax.plot(plot_df["冷却器温度Trad(K)"], plot_df["净制冷功率P_net(W/m²)"],
-                    'o-', color='#d62728', linewidth=2, markersize=7,
-                    label=f"Tamb={tamb_mid}K, q={q_mid}W/(m²·K)")
-            ax.axhline(y=0, color='black', linestyle='--', alpha=0.7, label="制冷临界点（P_net=0）")
+        # 创建画布
+        fig, ax = plt.subplots(figsize=(12, 7))
+        
+        # 遍历所有q值，绘制曲线
+        for idx, q in enumerate(q_list):
+            # 筛选当前Tamb和q的数据
+            plot_data = result_df[
+                (result_df["环境温度Tamb(K)"] == tamb_mid) & 
+                (result_df["对流换热系数q(W/(m²·K))"] == q)
+            ].sort_values("冷却器温度Trad(K)")
             
-            # 标注最大净功率
-            max_pnet_idx = plot_df["净制冷功率P_net(W/m²)"].idxmax()
-            max_pnet_row = plot_df.loc[max_pnet_idx]
-            ax.scatter(max_pnet_row["冷却器温度Trad(K)"], max_pnet_row["净制冷功率P_net(W/m²)"],
-                      color='#ffcc00', s=120, zorder=5, edgecolor='black',
-                      label=f"最大净功率：{max_pnet_row['净制冷功率P_net(W/m²)']:.2f}W/m²")
-            
-            ax.set_xlabel("辐射冷却器温度 Trad (K)", fontsize=12)
-            ax.set_ylabel("净制冷功率 P_net (W/m²)", fontsize=12)
-            ax.set_title(f"{day_night} 净制冷功率随冷却器温度变化", fontsize=14, fontweight='bold')
-            ax.legend(fontsize=10)
-            ax.grid(alpha=0.3)
-            st.pyplot(fig)
-        else:
-            st.warning("无匹配的可视化数据")
+            if len(plot_data) > 0:
+                ax.plot(
+                    plot_data["冷却器温度Trad(K)"], 
+                    plot_data["净制冷功率P_net(W/m²)"],
+                    'o-', 
+                    color=color_cycle(idx),
+                    linewidth=2, 
+                    markersize=6,
+                    label=f"q={q} W/(m²·K)"
+                )
+        
+        # 绘制制冷临界点
+        ax.axhline(y=0, color='black', linestyle='--', alpha=0.7, linewidth=1.5, label="制冷临界点（P_net=0）")
+        
+        # 图表美化
+        ax.set_xlabel("辐射冷却器温度 Trad (K)", fontsize=13)
+        ax.set_ylabel("净制冷功率 P_net (W/m²)", fontsize=13)
+        ax.set_title(f"{day_night} 不同q值净功率对比（固定Tamb={tamb_mid}K）", fontsize=15, fontweight='bold')
+        ax.legend(fontsize=11, bbox_to_anchor=(1.02, 1), loc='upper left')  # 图例放图外，避免遮挡
+        ax.grid(alpha=0.3, linestyle='-')
+        plt.tight_layout()  # 自动调整布局，避免标签被截断
+        
+        # 展示图表
+        st.pyplot(fig)
 
         # 结果下载
         st.markdown("### 📥 结果下载")
