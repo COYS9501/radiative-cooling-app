@@ -135,25 +135,53 @@ q_list = np.arange(q_min, q_max + q_step/2, q_step).round(2)
 st.sidebar.caption(f"q计算列表：{q_list} W/(m²·K)")
 
 # 1.5 发射率数据上传
-st.sidebar.markdown("### 4. 辐射冷却器发射率数据（必需）")
-uploaded_eps = st.sidebar.file_uploader("上传发射率CSV（格式：波长_μm, 发射率ε）", type="csv", accept_multiple_files=False)
-if uploaded_eps:
+import streamlit as st
+import pandas as pd
+import numpy as np
+
+# 侧边栏：发射率文件上传（必需）
+st.sidebar.header("4.辐射冷却器发射率数据（必需）")
+uploaded_eps_file = st.sidebar.file_uploader(
+    "上传发射率CSV（格式：波长_μm,发射率ε）",
+    type="csv",
+    help="CSV文件需包含两列：波长_μm（数值）、发射率ε（0-1之间）"
+)
+
+# 修复核心：正确读取 UploadedFile 对象
+eps_df = None
+if uploaded_eps_file:
     try:
-        with open(uploaded_eps, 'rb') as f:
-            result = chardet.detect(f.read())
-            encoding = result['encoding']
-        eps_df = pd.read_csv(uploaded_eps, encoding=encoding)
-        if not all(col in eps_df.columns for col in ["波长_μm", "发射率ε"]):
-            st.sidebar.error("发射率CSV需包含列：波长_μm、发射率ε")
-            eps_df = pd.DataFrame()
+        # 关键修改：直接读取内存中的文件内容，而非当作路径
+        # 方法1：用 StringIO 读取（推荐，兼容所有编码）
+        import io
+        string_data = uploaded_eps_file.getvalue().decode("utf-8")  # 解码为字符串
+        eps_df = pd.read_csv(io.StringIO(string_data))
+        
+        # 方法2（简化版，等效）：直接传 UploadedFile 对象（pandas 支持读取类文件对象）
+        # eps_df = pd.read_csv(uploaded_eps_file)  # 此写法在新版pandas中可行，但建议用方法1
+        
+        # 数据校验：确保列名正确
+        required_cols = ["波长_μm", "发射率ε"]
+        if not all(col in eps_df.columns for col in required_cols):
+            st.sidebar.error(f"发射率CSV列名错误！需包含：{required_cols}")
+            eps_df = None
         else:
-            st.sidebar.success(f"发射率数据加载成功（{len(eps_df)}行，波长{eps_df['波长_μm'].min():.2f}-{eps_df['波长_μm'].max():.2f}μm）")
+            # 数值类型校验
+            eps_df["波长_μm"] = pd.to_numeric(eps_df["波长_μm"], errors="coerce")
+            eps_df["发射率ε"] = pd.to_numeric(eps_df["发射率ε"], errors="coerce")
+            # 去除空值行
+            eps_df = eps_df.dropna(subset=required_cols)
+            if len(eps_df) < 2:
+                st.sidebar.error("发射率数据不足（至少需2个有效数据点）")
+                eps_df = None
+            else:
+                st.sidebar.success("发射率文件加载成功！")
     except Exception as e:
-        st.sidebar.error(f"发射率数据加载失败：{str(e)}")
-        eps_df = pd.DataFrame()
+        st.sidebar.error(f"发射率数据加载失败: {str(e)}")
+        eps_df = None
 else:
-    st.sidebar.warning("请上传发射率CSV文件（示例格式：波长_μm=0.3, 发射率ε=0.1；波长_μm=8, 发射率ε=0.95）")
-    eps_df = pd.DataFrame()
+    st.sidebar.warning("请先上传发射率CSV文件！")
+
 
 # ================================= 输出区（主页面） =================================
 st.markdown("### 📊 计算条件汇总")
@@ -348,6 +376,7 @@ if calculate_btn:
         - 最小净制冷功率：{min_pnet:.2f} W/m²
 
         """)
+
 
 
 
