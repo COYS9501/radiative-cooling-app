@@ -11,16 +11,20 @@ from io import BytesIO
 plt.rcParams['font.sans-serif'] = ['SimHei', 'DejaVu Sans']
 plt.rcParams['axes.unicode_minus'] = False
 
-H_PLANCK = 6.62607015e-34
-C_LIGHT = 299792458
-K_BOLTZMANN = 1.380649e-23
+# 物理常数（CODATA 2018）
+H_PLANCK = 6.62607015e-34  # 普朗克常数 (J·s)
+C_LIGHT = 299792458        # 光速 (m/s)
+K_BOLTZMANN = 1.380649e-23 # 玻尔兹曼常数 (J/K)
 
+# 默认数据文件路径（根据你的实际路径调整）
 DEFAULT_SUN_FILE = 'AM15太阳辐射_处理后.csv'
 DEFAULT_ATM_FILE = '大气透过率_处理后.csv'
 
-# -------------------------- 基础函数（强化版） --------------------------
+# -------------------------- 基础函数（最终修正版） --------------------------
 import chardet
+
 def load_default_data(file_path, desc):
+    """加载默认CSV文件，自动检测编码"""
     try:
         with open(file_path, 'rb') as f:
             result = chardet.detect(f.read())
@@ -31,27 +35,39 @@ def load_default_data(file_path, desc):
         return pd.DataFrame(), f"❌ 加载失败：{str(e)}"
 
 def planck_law(T_rad, lmbda_m):
+    """普朗克黑体辐射定律计算
+    T_rad: 温度 (K)
+    lmbda_m: 波长 (m)
+    返回：辐射出射度 (W/m³)
+    """
     numerator = 2 * H_PLANCK * C_LIGHT**2 / (lmbda_m**5)
     denominator = np.exp(H_PLANCK * C_LIGHT / (lmbda_m * K_BOLTZMANN * T_rad)) - 1
     return numerator / denominator
 
 def interpolate_curve(x_target, x_source, y_source, desc):
-    """强化版插值函数，确保始终返回NumPy数组"""
+    """强化版插值函数（最终修正版）
+    确保始终返回NumPy数组，解决UnboundLocalError问题
+    """
+    # 第一步：校验数据量
     if len(x_source) < 2 or len(y_source) < 2:
         st.error(f"{desc}数据不足（<2个有效点），无法插值，返回全零数组")
         return np.zeros_like(x_target, dtype=np.float64)
     
+    # 第二步：强制转换为数值数组
     x_source = np.asarray(x_source, dtype=np.float64)
     y_source = np.asarray(y_source, dtype=np.float64)
     
+    # 第三步：过滤NaN值（关键：变量定义在if外，避免作用域问题）
     valid_mask = ~(np.isnan(x_source) | np.isnan(y_source))
     x_valid = x_source[valid_mask]
-    y_valid = y_valid[valid_mask]
+    y_valid = y_source[valid_mask]
     
+    # 第四步：再次校验有效数据量
     if len(x_valid) < 2:
         st.error(f"{desc}数据清洗后有效点数不足，返回全零数组")
         return np.zeros_like(x_target, dtype=np.float64)
     
+    # 第五步：执行插值，确保返回数组
     try:
         f = interpolate.interp1d(x_valid, y_valid, bounds_error=False, fill_value='extrapolate')
         return np.asarray(f(x_target), dtype=np.float64)
@@ -63,9 +79,11 @@ def interpolate_curve(x_target, x_source, y_source, desc):
 st.title("🌞 辐射制冷净功率自动计算系统")
 st.markdown("---")
 
+# 侧边栏参数配置
 st.sidebar.title("🔧 计算参数输入（默认值可修改）")
 st.sidebar.markdown("### 1. 基础固定参数（默认值适配常规场景）")
 
+# 入射角设置
 theta_deg = st.sidebar.number_input(
     "入射角 θ（度）",
     value=0.0, step=1.0, min_value=0.0, max_value=90.0
@@ -73,6 +91,7 @@ theta_deg = st.sidebar.number_input(
 theta_rad = np.radians(theta_deg)
 st.sidebar.caption(f"当前θ（弧度）：{theta_rad:.4f} rad | cosθ：{np.cos(theta_rad):.4f}")
 
+# 波长范围设置
 lambda_min = st.sidebar.number_input(
     "波长下限（μm）",
     value=0.25, step=0.1, min_value=0.25, max_value=5.0
@@ -83,28 +102,33 @@ lambda_max = st.sidebar.number_input(
 )
 st.sidebar.caption(f"最终计算波长范围：{lambda_min:.2f}-{lambda_max:.2f} μm")
 
+# 数据文件配置
 st.sidebar.markdown("### 2. 内置数据文件（支持自定义替换）")
 
+# 太阳辐射数据
 st.sidebar.subheader("太阳辐射数据（AM1.5）")
 sun_df_default, sun_msg_default = load_default_data(DEFAULT_SUN_FILE, "AM1.5太阳辐射")
 st.sidebar.caption(f"默认文件：{DEFAULT_SUN_FILE.split('/')[-1]} | {sun_msg_default}")
 uploaded_sun = st.sidebar.file_uploader(
-    "上传自定义太阳辐射CSV（仅需两列：第一列=波长(μm)，第二列=太阳辐射强度，列名可自定义）",
+    "上传自定义太阳辐射CSV（仅需两列：第一列=波长(μm)，第二列=太阳辐射强度）",
     type="csv"
 )
 
+# 大气透过率数据
 st.sidebar.subheader("大气透过率数据（τatm）")
 atm_df_default, atm_msg_default = load_default_data(DEFAULT_ATM_FILE, "大气透过率")
 st.sidebar.caption(f"默认文件：{DEFAULT_ATM_FILE.split('/')[-1]} | {atm_msg_default}")
 uploaded_atm = st.sidebar.file_uploader(
-    "上传自定义大气透过率CSV（仅需两列：第一列=波长(μm)，第二列=透过率τ，列名可自定义）",
+    "上传自定义大气透过率CSV（仅需两列：第一列=波长(μm)，第二列=透过率τ）",
     type="csv"
 )
 
+# 昼夜模式与批量参数
 st.sidebar.markdown("### 3. 昼夜模式与批量计算参数")
 day_night = st.sidebar.radio("计算模式", ["白天（含太阳辐射）", "夜晚（无太阳辐射）"], index=0)
 is_day = (day_night == "白天（含太阳辐射）")
 
+# 环境温度Tamb设置
 st.sidebar.subheader("环境温度 Tamb（K）")
 tamb_min = st.sidebar.number_input("Tamb最小值", value=280.0 if not is_day else 290.0, step=1.0, min_value=250.0, max_value=330.0)
 tamb_max = st.sidebar.number_input("Tamb最大值", value=290.0 if not is_day else 300.0, step=1.0, min_value=tamb_min, max_value=330.0)
@@ -112,6 +136,7 @@ tamb_step = st.sidebar.number_input("Tamb步长", value=5.0, step=1.0, min_value
 tamb_list = np.arange(tamb_min, tamb_max + tamb_step/2, tamb_step).round(2)
 st.sidebar.caption(f"Tamb计算列表：{tamb_list} K")
 
+# 冷却器温度Trad设置
 st.sidebar.subheader("辐射冷却器温度 Trad（K）")
 trad_min = st.sidebar.number_input("Trad最小值", value=270.0, step=1.0, min_value=250.0, max_value=tamb_max)
 trad_max = st.sidebar.number_input("Trad最大值", value=285.0, step=1.0, min_value=trad_min, max_value=tamb_max)
@@ -119,6 +144,7 @@ trad_step = st.sidebar.number_input("Trad步长", value=2.0, step=0.5, min_value
 trad_list = np.arange(trad_min, trad_max + trad_step/2, trad_step).round(2)
 st.sidebar.caption(f"Trad计算列表：{trad_list} K")
 
+# 对流换热系数q设置
 st.sidebar.subheader("对流换热系数 q（W/(m²·K)）")
 q_min = st.sidebar.number_input("q最小值", value=3.0, step=0.5, min_value=0.5, max_value=20.0)
 q_max = st.sidebar.number_input("q最大值", value=8.0, step=0.5, min_value=q_min, max_value=20.0)
@@ -126,12 +152,14 @@ q_step = st.sidebar.number_input("q步长", value=1.0, step=0.5, min_value=0.5, 
 q_list = np.arange(q_min, q_max + q_step/2, q_step).round(2)
 st.sidebar.caption(f"q计算列表：{q_list} W/(m²·K)")
 
+# 发射率数据上传（必需）
 st.sidebar.markdown("### 4. 辐射冷却器发射率数据（必需）")
 uploaded_eps = st.sidebar.file_uploader(
-    "上传发射率CSV（仅需两列：第一列=波长(μm)，第二列=发射率ε，列名可自定义）",
+    "上传发射率CSV（仅需两列：第一列=波长(μm)，第二列=发射率ε）",
     type="csv", accept_multiple_files=False
 )
 
+# 处理发射率数据
 if uploaded_eps:
     try:
         file_content = uploaded_eps.getvalue()
@@ -143,6 +171,7 @@ if uploaded_eps:
             st.sidebar.error(f"❌ 发射率CSV需为**两列数据**（波长+发射率），当前列数：{len(eps_df.columns)}列")
             eps_df = pd.DataFrame()
         else:
+            # 重命名列并清洗数据
             original_cols = eps_df.columns.tolist()
             eps_df.columns = ["波长_μm", "发射率ε"]
             
@@ -154,6 +183,7 @@ if uploaded_eps:
                 st.sidebar.error("❌ 数据中无有效数值！请检查：\n1. 列1是否为波长（数字）\n2. 列2是否为发射率（数字）")
                 eps_df = pd.DataFrame()
             else:
+                # 发射率限制在0-1之间
                 eps_df_clean["发射率ε"] = eps_df_clean["发射率ε"].clip(0, 1)
                 eps_df_clean = eps_df_clean.sort_values("波长_μm").reset_index(drop=True)
                 
@@ -180,7 +210,7 @@ else:
     )
     eps_df = pd.DataFrame()
 
-# ================================= 输出区（主页面） =================================
+# ================================= 主页面输出区 =================================
 st.markdown("### 📊 计算条件汇总")
 with st.expander("点击查看当前计算参数（确认后再运行）", expanded=True):
     cond_data = {
@@ -209,14 +239,17 @@ with st.expander("点击查看当前计算参数（确认后再运行）", expan
     }
     st.dataframe(pd.DataFrame(cond_data), use_container_width=True)
 
+# 检查是否可以开始计算
 can_calculate = (len(eps_df) > 0) and (len(tamb_list) > 0) and (len(trad_list) > 0) and (len(q_list) > 0)
 if not can_calculate:
     st.warning("请完成必需输入：1. 上传发射率CSV；2. 确认Tamb/Trad/q的范围和步长（确保列表非空）")
 
+# 计算按钮
 calculate_btn = st.button("🚀 开始批量计算辐射制冷净功率", disabled=not can_calculate)
 
 if calculate_btn:
     with st.spinner("正在计算...（批量计算可能需要10-30秒，请耐心等待）"):
+        # 1. 加载太阳辐射数据
         if uploaded_sun:
             try:
                 file_content = uploaded_sun.getvalue()
@@ -230,6 +263,7 @@ if calculate_btn:
                 original_sun_cols = sun_df.columns.tolist()
                 sun_df.columns = ["波长_μm", "太阳辐射强度_Wm-2μm-1"]
                 
+                # 数据清洗
                 sun_df["波长_μm"] = pd.to_numeric(sun_df["波长_μm"], errors='coerce')
                 sun_df["太阳辐射强度_Wm-2μm-1"] = pd.to_numeric(sun_df["太阳辐射强度_Wm-2μm-1"], errors='coerce')
                 sun_df = sun_df.dropna()
@@ -247,6 +281,7 @@ if calculate_btn:
             if len(sun_df.columns) == 2:
                 sun_df.columns = ["波长_μm", "太阳辐射强度_Wm-2μm-1"]
 
+        # 2. 加载大气透过率数据
         if uploaded_atm:
             try:
                 file_content = uploaded_atm.getvalue()
@@ -260,6 +295,7 @@ if calculate_btn:
                 original_atm_cols = atm_df.columns.tolist()
                 atm_df.columns = ["波长_μm", "大气透过率_τatm"]
                 
+                # 数据清洗
                 atm_df["波长_μm"] = pd.to_numeric(atm_df["波长_μm"], errors='coerce')
                 atm_df["大气透过率_τatm"] = pd.to_numeric(atm_df["大气透过率_τatm"], errors='coerce')
                 atm_df = atm_df.dropna()
@@ -278,11 +314,15 @@ if calculate_btn:
             if len(atm_df.columns) == 2:
                 atm_df.columns = ["波长_μm", "大气透过率_τatm"]
 
+        # 3. 生成统一波长网格
         lambda_grid = np.arange(lambda_min, lambda_max + 0.005, 0.01).round(2)
         st.success(f"生成统一波长网格：{len(lambda_grid)}个点（{lambda_min:.2f}-{lambda_max:.2f}μm，间隔0.01μm）")
 
+        # 4. 所有曲线插值到统一网格
+        # 发射率插值
         eps_interp = interpolate_curve(lambda_grid, eps_df["波长_μm"], eps_df["发射率ε"], "发射率")
 
+        # 大气透过率插值（先清洗）
         atm_df["波长_μm"] = pd.to_numeric(atm_df["波长_μm"], errors='coerce')
         atm_df["大气透过率_τatm"] = pd.to_numeric(atm_df["大气透过率_τatm"], errors='coerce')
         atm_df_clean = atm_df.dropna(subset=["波长_μm", "大气透过率_τatm"])
@@ -291,6 +331,7 @@ if calculate_btn:
             st.stop()
         tau_atm_interp = interpolate_curve(lambda_grid, atm_df_clean["波长_μm"], atm_df_clean["大气透过率_τatm"], "大气透过率")
 
+        # 太阳辐射插值（先清洗，仅白天用）
         if is_day:
             sun_df["波长_μm"] = pd.to_numeric(sun_df["波长_μm"], errors='coerce')
             sun_df["太阳辐射强度_Wm-2μm-1"] = pd.to_numeric(sun_df["太阳辐射强度_Wm-2μm-1"], errors='coerce')
@@ -302,53 +343,63 @@ if calculate_btn:
         else:
             sun_interp = np.zeros_like(lambda_grid, dtype=np.float64)
 
+        # 5. 批量计算净功率
         result_list = []
+        # 构建插值函数（用于积分）
         eps_interp_func = interpolate.interp1d(lambda_grid, eps_interp, bounds_error=False, fill_value='extrapolate')
         tau_atm_interp_func = interpolate.interp1d(lambda_grid, tau_atm_interp, bounds_error=False, fill_value='extrapolate')
         
         for tamb in tamb_list:
             for trad in trad_list:
                 for q in q_list:
+                    # 计算P_rad（材料辐射功率）
                     def p_rad_integrand(lmbda_μm):
-                        lmbda_m = lmbda_μm * 1e-6
+                        lmbda_m = lmbda_μm * 1e-6  # 转换为米
                         ibb = planck_law(trad, lmbda_m)
                         eps = eps_interp_func(lmbda_μm)
-                        return ibb * eps * np.cos(theta_rad) * 1e6
+                        return ibb * eps * np.cos(theta_rad) * 1e6  # 单位转换
 
                     p_rad, _ = integrate.quad(p_rad_integrand, lambda_min, lambda_max)
-                    p_rad *= 2 * np.pi
+                    p_rad *= 2 * np.pi  # 立体角积分
 
+                    # 计算P_atm（大气逆辐射）
                     def p_atm_integrand(lmbda_μm):
                         lmbda_m = lmbda_μm * 1e-6
                         ibb = planck_law(tamb, lmbda_m)
                         eps = eps_interp_func(lmbda_μm)
                         tau_atm = tau_atm_interp_func(lmbda_μm)
                         cos_theta = np.cos(theta_rad)
+                        
+                        # 避免除零错误
                         if cos_theta < 1e-6:
                             eps_atm = 0.9
                         else:
-                            tau_atm = max(tau_atm, 1e-8)
+                            tau_atm = max(tau_atm, 1e-8)  # 避免0的幂次
                             eps_atm = 1 - (tau_atm ** (1 / cos_theta))
                         return ibb * eps * eps_atm * cos_theta * 1e6
 
                     p_atm, _ = integrate.quad(p_atm_integrand, lambda_min, lambda_max)
                     p_atm *= 2 * np.pi
 
+                    # 计算P_sun（太阳辐射，带安全校验）
                     if is_day:
                         if not isinstance(sun_interp, np.ndarray) or not isinstance(eps_interp, np.ndarray):
                             st.warning("太阳辐射/发射率插值结果非数组，P_sun按0计算")
                             p_sun = 0.0
                         elif sun_interp.shape != eps_interp.shape or sun_interp.shape != lambda_grid.shape:
-                            st.warning(f"数组形状不匹配（太阳辐射：{sun_interp.shape}，发射率：{eps_interp.shape}，波长网格：{lambda_grid.shape}），P_sun按0计算")
+                            st.warning(f"数组形状不匹配，P_sun按0计算")
                             p_sun = 0.0
                         else:
                             p_sun = integrate.trapz(sun_interp * eps_interp, lambda_grid)
                     else:
                         p_sun = 0.0
 
+                    # 计算非辐射损失
                     p_cond_conv = q * (tamb - trad)
+                    # 计算净制冷功率
                     p_net = p_rad - p_atm - p_sun - p_cond_conv
 
+                    # 保存结果
                     result_list.append({
                         "昼夜模式": day_night,
                         "环境温度Tamb（K）": tamb,
@@ -362,12 +413,15 @@ if calculate_btn:
                         "制冷状态": "✅ 制冷" if p_net > 0 else "❌ 不制冷"
                     })
 
+        # 6. 结果处理与展示
         result_df = pd.DataFrame(result_list)
         st.markdown("### 📈 批量计算结果（共{}组数据）".format(len(result_df)))
 
+        # 完整结果表格
         with st.expander("查看完整结果表格", expanded=False):
             st.dataframe(result_df, use_container_width=True, height=400)
 
+        # 可视化：P_net随Trad变化
         st.markdown("### 📊 净功率P_net随Trad变化曲线（固定中间Tamb和q）")
         tamb_mid = tamb_list[len(tamb_list)//2]
         q_mid = q_list[len(q_list)//2]
@@ -378,6 +432,8 @@ if calculate_btn:
             ax.plot(plot_df["冷却器温度Trad（K）"], plot_df["净制冷功率P_net（W/m²）"],
                     'o-', color='darkred', linewidth=2, markersize=6, label=f"Tamb={tamb_mid}K, q={q_mid}W/(m²·K)")
             ax.axhline(y=0, color='black', linestyle='--', alpha=0.7, label="P_net=0（制冷临界点）")
+            
+            # 标注最大净功率点
             max_pnet_idx = plot_df["净制冷功率P_net（W/m²）"].idxmax()
             max_pnet_row = plot_df.loc[max_pnet_idx]
             ax.scatter(max_pnet_row["冷却器温度Trad（K）"], max_pnet_row["净制冷功率P_net（W/m²）"],
@@ -392,13 +448,15 @@ if calculate_btn:
         else:
             st.warning("无匹配的可视化数据（请检查Tamb/q的中间值是否在计算列表中）")
 
+        # 结果下载（适配本地环境，修改路径为当前目录）
         st.markdown("### 📥 结果下载")
-        with pd.ExcelWriter('/mnt/辐射制冷功率计算结果.xlsx', engine='openpyxl') as writer:
+        excel_file = "辐射制冷功率计算结果.xlsx"
+        with pd.ExcelWriter(excel_file, engine='openpyxl') as writer:
             result_df.to_excel(writer, sheet_name=day_night, index=False)
             cond_df = pd.DataFrame(cond_data)
             cond_df.to_excel(writer, sheet_name="计算条件", index=False)
         
-        with open('/mnt/辐射制冷功率计算结果.xlsx', 'rb') as f:
+        with open(excel_file, 'rb') as f:
             st.download_button(
                 label=f"下载{day_night}计算结果（Excel，含{len(result_df)}组数据）",
                 data=f,
@@ -406,6 +464,7 @@ if calculate_btn:
                 mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
             )
 
+        # 关键统计
         st.markdown("### 📊 关键统计")
         total_cooling = len(result_df[result_df["制冷状态"] == "✅ 制冷"])
         max_pnet = result_df["净制冷功率P_net（W/m²）"].max()
