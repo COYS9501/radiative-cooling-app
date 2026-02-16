@@ -139,20 +139,63 @@ st.sidebar.markdown("### 4. 辐射冷却器发射率数据（必需）")
 uploaded_eps = st.sidebar.file_uploader("上传发射率CSV（格式：波长_μm, 发射率ε）", type="csv", accept_multiple_files=False)
 if uploaded_eps:
     try:
+        # 检测文件编码
         with open(uploaded_eps, 'rb') as f:
             result = chardet.detect(f.read())
             encoding = result['encoding']
+        # 读取CSV
         eps_df = pd.read_csv(uploaded_eps, encoding=encoding)
-        if not all(col in eps_df.columns for col in ["波长_μm", "发射率ε"]):
-            st.sidebar.error("发射率CSV需包含列：波长_μm、发射率ε")
+        
+        # 校验1：列名是否正确
+        required_cols = ["波长_μm", "发射率ε"]
+        if not all(col in eps_df.columns for col in required_cols):
+            st.sidebar.error(f"发射率CSV列名错误！必需包含：{required_cols}，当前列名：{list(eps_df.columns)}")
             eps_df = pd.DataFrame()
         else:
-            st.sidebar.success(f"发射率数据加载成功（{len(eps_df)}行，波长{eps_df['波长_μm'].min():.2f}-{eps_df['波长_μm'].max():.2f}μm）")
+            # 校验2：空值检查
+            if eps_df[required_cols].isnull().any().any():
+                st.sidebar.error("发射率数据包含空值！请清理后重新上传")
+                eps_df = pd.DataFrame()
+            else:
+                # 校验3：数值类型转换（确保是数值）
+                eps_df["波长_μm"] = pd.to_numeric(eps_df["波长_μm"], errors='coerce')
+                eps_df["发射率ε"] = pd.to_numeric(eps_df["发射率ε"], errors='coerce')
+                if eps_df[required_cols].isnull().any().any():
+                    st.sidebar.error("波长/发射率包含非数值内容！请检查数据格式")
+                    eps_df = pd.DataFrame()
+                else:
+                    # 校验4：发射率范围（0-1）
+                    if not ((eps_df["发射率ε"] >= 0) & (eps_df["发射率ε"] <= 1)).all():
+                        st.sidebar.warning("⚠️ 发射率超出0-1范围！已自动截断至0-1")
+                        eps_df["发射率ε"] = eps_df["发射率ε"].clip(0, 1)
+                    
+                    # 校验5：波长范围（匹配计算范围0.25-25μm）
+                    wave_min = eps_df["波长_μm"].min()
+                    wave_max = eps_df["波长_μm"].max()
+                    if wave_min > 25 or wave_max < 0.25:
+                        st.sidebar.error(f"波长范围{wave_min:.2f}-{wave_max:.2f}μm完全超出计算范围（0.25-25μm）！")
+                        eps_df = pd.DataFrame()
+                    else:
+                        # 校验6：重复波长检查
+                        if eps_df["波长_μm"].duplicated().any():
+                            st.sidebar.warning("⚠️ 存在重复波长！已保留首次出现的数值")
+                            eps_df = eps_df.drop_duplicates(subset=["波长_μm"], keep='first')
+                        
+                        # 校验7：波长排序
+                        eps_df = eps_df.sort_values(by="波长_μm").reset_index(drop=True)
+                        
+                        # 最终成功提示（补充更多信息）
+                        st.sidebar.success(
+                            f"发射率数据加载成功！\n"
+                            f"📊 数据量：{len(eps_df)}行\n"
+                            f"📏 波长范围：{eps_df['波长_μm'].min():.2f}-{eps_df['波长_μm'].max():.2f}μm\n"
+                            f"📈 发射率范围：{eps_df['发射率ε'].min():.3f}-{eps_df['发射率ε'].max():.3f}"
+                        )
     except Exception as e:
         st.sidebar.error(f"发射率数据加载失败：{str(e)}")
         eps_df = pd.DataFrame()
 else:
-    st.sidebar.warning("请上传发射率CSV文件（示例格式：波长_μm=0.3, 发射率ε=0.1；波长_μm=8, 发射率ε=0.95）")
+    st.sidebar.warning("请上传发射率CSV文件（示例格式：\n波长_μm,发射率ε\n0.3,0.1\n8.0,0.95\n15.0,0.98）")
     eps_df = pd.DataFrame()
 
 # ================================= 输出区（主页面） =================================
@@ -348,6 +391,7 @@ if calculate_btn:
         - 最小净制冷功率：{min_pnet:.2f} W/m²
 
         """)
+
 
 
 
