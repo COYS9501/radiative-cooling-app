@@ -135,58 +135,25 @@ q_list = np.arange(q_min, q_max + q_step/2, q_step).round(2)
 st.sidebar.caption(f"q计算列表：{q_list} W/(m²·K)")
 
 # 1.5 发射率数据上传
-import streamlit as st
-import pandas as pd
-import io
-
-# ---------------------- 侧边栏：发射率文件上传（定义正确的变量名） ----------------------
-st.sidebar.header("4.辐射冷却器发射率数据（必需）")
-# 定义变量名：uploaded_eps_file（全程统一使用这个名称，不要混用uploaded_eps）
-uploaded_eps_file = st.sidebar.file_uploader(
-    "上传发射率CSV（格式：波长_μm,发射率ε）",
-    type="csv",
-    help="CSV文件需包含两列：波长_μm（数值）、发射率ε（0-1之间）"
-)
-
-# 加载发射率数据（带错误处理）
-eps_df = None
-if uploaded_eps_file:
+st.sidebar.markdown("### 4. 辐射冷却器发射率数据（必需）")
+uploaded_eps = st.sidebar.file_uploader("上传发射率CSV（格式：波长_μm, 发射率ε）", type="csv", accept_multiple_files=False)
+if uploaded_eps:
     try:
-        # 正确读取UploadedFile对象
-        string_data = uploaded_eps_file.getvalue().decode("utf-8")
-        eps_df = pd.read_csv(io.StringIO(string_data))
-        # 列名/数据校验（省略，同之前修复的逻辑）
-        st.sidebar.success("发射率文件加载成功！")
+        with open(uploaded_eps, 'rb') as f:
+            result = chardet.detect(f.read())
+            encoding = result['encoding']
+        eps_df = pd.read_csv(uploaded_eps, encoding=encoding)
+        if not all(col in eps_df.columns for col in ["波长_μm", "发射率ε"]):
+            st.sidebar.error("发射率CSV需包含列：波长_μm、发射率ε")
+            eps_df = pd.DataFrame()
+        else:
+            st.sidebar.success(f"发射率数据加载成功（{len(eps_df)}行，波长{eps_df['波长_μm'].min():.2f}-{eps_df['波长_μm'].max():.2f}μm）")
     except Exception as e:
-        st.sidebar.error(f"发射率数据加载失败: {str(e)}")
+        st.sidebar.error(f"发射率数据加载失败：{str(e)}")
+        eps_df = pd.DataFrame()
 else:
-    st.sidebar.warning("请先上传发射率CSV文件！")
-
-# ---------------------- 计算条件汇总：安全显示发射率文件名 ----------------------
-st.header("计算条件汇总")
-with st.expander("点击查看当前计算参数（确认后再运行）"):
-    # 修复核心：安全获取文件名
-    if uploaded_eps_file:
-        eps_file_display = uploaded_eps_file.name  # 仅当文件存在时访问.name
-    else:
-        eps_file_display = "未上传（必需）"
-    
-    # 构建参数汇总表格（包含发射率文件）
-    param_summary = pd.DataFrame({
-        "参数类别": [
-            "基础参数", "基础参数", "数据文件", "数据文件", "数据文件"
-        ],
-        "参数名称": [
-            "入射角θ", "计算波长范围", "太阳辐射文件", "大气透过率文件", "发射率文件"
-        ],
-        "当前值": [
-            "0.0° (cosθ=1.0000)", "0.25-25.00 μm",
-            "AM15太阳辐射_处理后.csv", "大气透过率_处理后.csv",
-            eps_file_display  # 使用修复后的文件名变量
-        ]
-    })
-    st.table(param_summary)
-
+    st.sidebar.warning("请上传发射率CSV文件（示例格式：波长_μm=0.3, 发射率ε=0.1；波长_μm=8, 发射率ε=0.95）")
+    eps_df = pd.DataFrame()
 
 # ================================= 输出区（主页面） =================================
 st.markdown("### 📊 计算条件汇总")
@@ -381,8 +348,6 @@ if calculate_btn:
         - 最小净制冷功率：{min_pnet:.2f} W/m²
 
         """)
-
-
 
 
 
