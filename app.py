@@ -321,11 +321,28 @@ if calculate_btn:
         # 3. 所有曲线插值到统一网格
         # 发射率插值
         eps_interp = interpolate_curve(lambda_grid, eps_df["波长_μm"], eps_df["发射率ε"], "发射率")
-        # 大气透过率插值（现在列名已经统一，不会KeyError）
-        tau_atm_interp = interpolate_curve(lambda_grid, atm_df["波长_μm"], atm_df["大气透过率_τatm"], "大气透过率")
-        # 太阳辐射插值（仅白天用，列名已统一）
-        sun_interp = interpolate_curve(lambda_grid, sun_df["波长_μm"], sun_df["太阳辐射强度_Wm-2μm-1"], "太阳辐射") if is_day else np.zeros_like(lambda_grid)
-
+        
+        # 大气透过率插值：先清洗数据，再插值
+        atm_df["波长_μm"] = pd.to_numeric(atm_df["波长_μm"], errors='coerce')
+        atm_df["大气透过率_τatm"] = pd.to_numeric(atm_df["大气透过率_τatm"], errors='coerce')
+        atm_df_clean = atm_df.dropna(subset=["波长_μm", "大气透过率_τatm"])
+        if len(atm_df_clean) < 2:
+            st.error("❌ 大气透过率数据清洗后有效点数不足（<2），无法插值！请检查文件是否包含有效数值。")
+            st.stop()
+        tau_atm_interp = interpolate_curve(lambda_grid, atm_df_clean["波长_μm"], atm_df_clean["大气透过率_τatm"], "大气透过率")
+        
+        # 太阳辐射插值：先清洗数据，再插值（仅白天用）
+        if is_day:
+            sun_df["波长_μm"] = pd.to_numeric(sun_df["波长_μm"], errors='coerce')
+            sun_df["太阳辐射强度_Wm-2μm-1"] = pd.to_numeric(sun_df["太阳辐射强度_Wm-2μm-1"], errors='coerce')
+            sun_df_clean = sun_df.dropna(subset=["波长_μm", "太阳辐射强度_Wm-2μm-1"])
+            if len(sun_df_clean) < 2:
+                st.error("❌ 太阳辐射数据清洗后有效点数不足（<2），无法插值！请检查文件是否包含有效数值。")
+                st.stop()
+            sun_interp = interpolate_curve(lambda_grid, sun_df_clean["波长_μm"], sun_df_clean["太阳辐射强度_Wm-2μm-1"], "太阳辐射")
+        else:
+            sun_interp = np.zeros_like(lambda_grid)
+        
         # 4. 批量计算所有参数组合
         result_list = []
         # 预先生成插值函数，避免循环内重复创建
@@ -453,3 +470,4 @@ if calculate_btn:
         - 最小净制冷功率：{min_pnet:.2f} W/m²
 
         """)
+
