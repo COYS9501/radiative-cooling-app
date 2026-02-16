@@ -43,13 +43,31 @@ def planck_law(T_rad, lmbda_m):
     return numerator / denominator
 
 def interpolate_curve(x_target, x_source, y_source, desc):
-    """线性插值：将源曲线插值到目标波长网格"""
+    """线性插值：将源曲线插值到目标波长网格（强化版，确保返回有效数组）"""
+    # 第一步：校验数据量
     if len(x_source) < 2 or len(y_source) < 2:
-        st.error(f"{desc}数据不足，无法插值")
-        return np.zeros_like(x_target)
-    # 超出源范围的部分用边缘值填充
-    f = interpolate.interp1d(x_source, y_source, bounds_error=False, fill_value='extrapolate')
-    return f(x_target)
+        st.error(f"{desc}数据不足（<2个有效点），无法插值，返回全零数组")
+        return np.zeros_like(x_target, dtype=np.float64)
+    
+    # 第二步：强制转换为数值数组（核心修复：避免非数组类型）
+    x_source = np.asarray(x_source, dtype=np.float64)
+    y_source = np.asarray(y_source, dtype=np.float64)
+    
+    # 第三步：过滤NaN值（避免插值函数报错）
+    valid_mask = ~(np.isnan(x_source) | np.isnan(y_source))
+    x_valid = x_source[valid_mask]
+    y_valid = y_source[valid_mask]
+    if len(x_valid) < 2:
+        st.error(f"{desc}数据清洗后有效点数不足，返回全零数组")
+        return np.zeros_like(x_target, dtype=np.float64)
+    
+    # 第四步：执行插值，确保返回数组
+    try:
+        f = interpolate.interp1d(x_valid, y_valid, bounds_error=False, fill_value='extrapolate')
+        return f(x_target)
+    except Exception as e:
+        st.error(f"{desc}插值失败：{str(e)}，返回全零数组")
+        return np.zeros_like(x_target, dtype=np.float64)
 
 # -------------------------- UI页面开发 --------------------------
 st.title("🌞 辐射制冷净功率自动计算系统")
@@ -382,7 +400,20 @@ if calculate_btn:
                     p_atm *= 2 * np.pi
 
                     # 4.3 计算P_sun（太阳辐射，仅白天）
-                    p_sun = integrate.trapz(sun_interp * eps_interp, lambda_grid) if is_day else 0.0
+                    # 计算P_sun（太阳辐射，仅白天）- 增加安全校验
+                    if is_day:
+                        # 双重保险：检查是否为有效数组、形状是否匹配
+                        if not isinstance(sun_interp, np.ndarray) or not isinstance(eps_interp, np.ndarray):
+                            st.warning("太阳辐射/发射率插值结果非数组，P_sun按0计算")
+                            p_sun = 0.0
+                        elif sun_interp.shape != eps_interp.shape or sun_interp.shape != lambda_grid.shape:
+                            st.warning(f"数组形状不匹配（太阳辐射：{sun_interp.shape}，发射率：{eps_interp.shape}，波长网格：{lambda_grid.shape}），P_sun按0计算")
+                            p_sun = 0.0
+                        else:
+                            # 执行积分计算
+                            p_sun = integrate.trapz(sun_interp * eps_interp, lambda_grid)
+                    else:
+                        p_sun = 0.0
 
                     # 4.4 计算P_cond_conv（非辐射损失）
                     p_cond_conv = q * (tamb - trad)
@@ -470,4 +501,5 @@ if calculate_btn:
         - 最小净制冷功率：{min_pnet:.2f} W/m²
 
         """)
+
 
