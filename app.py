@@ -97,13 +97,16 @@ st.sidebar.markdown("### 2. 内置数据文件（支持自定义替换）")
 st.sidebar.subheader("太阳辐射数据（AM1.5）")
 sun_df_default, sun_msg_default = load_default_data(DEFAULT_SUN_FILE, "AM1.5太阳辐射")
 st.sidebar.caption(f"默认文件：{DEFAULT_SUN_FILE.split('/')[-1]} | {sun_msg_default}")
-uploaded_sun = st.sidebar.file_uploader("上传自定义太阳辐射CSV（波长_μm, 太阳辐射强度_Wm-2μm-1）", type="csv")
+uploaded_sun = st.sidebar.file_uploader("上传自定义太阳辐射CSV（仅需两列：第一列=波长(μm)，第二列=太阳辐射强度，列名可自定义）", type="csv")
 
-# 大气透过率文件
+# 大气透过率文件（核心修改：灵活列名读取）
 st.sidebar.subheader("大气透过率数据（τatm）")
 atm_df_default, atm_msg_default = load_default_data(DEFAULT_ATM_FILE, "大气透过率")
 st.sidebar.caption(f"默认文件：{DEFAULT_ATM_FILE.split('/')[-1]} | {atm_msg_default}")
-uploaded_atm = st.sidebar.file_uploader("上传自定义大气透过率CSV（波长_μm, 大气透过率_τatm）", type="csv")
+uploaded_atm = st.sidebar.file_uploader(
+    "上传自定义大气透过率CSV（仅需两列：第一列=波长(μm)，第二列=透过率τ，列名可自定义）", 
+    type="csv"
+)
 
 # 1.4 昼夜模式与批量参数
 st.sidebar.markdown("### 3. 昼夜模式与批量计算参数")
@@ -245,13 +248,26 @@ calculate_btn = st.button("🚀 开始批量计算辐射制冷净功率", disabl
 if calculate_btn:
     with st.spinner("正在计算...（批量计算可能需要10-30秒，请耐心等待）"):
         # 1. 加载最终使用的数据（优先用户上传，其次默认）
-        # 太阳辐射
+        # 太阳辐射（核心修改：灵活列名）
         if uploaded_sun:
             try:
                 file_content = uploaded_sun.getvalue()
                 result = chardet.detect(file_content)
                 encoding = result['encoding'] or 'utf-8'
                 sun_df = pd.read_csv(BytesIO(file_content), encoding=encoding)
+                # 太阳辐射文件：统一列名（第一列=波长_μm，第二列=太阳辐射强度_Wm-2μm-1）
+                if len(sun_df.columns) != 2:
+                    st.error("❌ 太阳辐射CSV需为两列数据（波长+太阳辐射强度）")
+                    st.stop()
+                original_sun_cols = sun_df.columns.tolist()
+                sun_df.columns = ["波长_μm", "太阳辐射强度_Wm-2μm-1"]
+                # 数值校验
+                sun_df["波长_μm"] = pd.to_numeric(sun_df["波长_μm"], errors='coerce')
+                sun_df["太阳辐射强度_Wm-2μm-1"] = pd.to_numeric(sun_df["太阳辐射强度_Wm-2μm-1"], errors='coerce')
+                sun_df = sun_df.dropna()
+                if len(sun_df) == 0:
+                    st.error("❌ 太阳辐射数据无有效数值")
+                    st.stop()
             except Exception as e:
                 st.error(f"自定义太阳辐射文件加载失败：{str(e)}")
                 st.stop()
@@ -260,14 +276,32 @@ if calculate_btn:
                 st.error("默认太阳辐射文件加载失败，请检查文件路径或上传自定义文件")
                 st.stop()
             sun_df = sun_df_default
+            # 兼容默认文件列名（如果默认文件列名不是标准名，也统一重命名）
+            if len(sun_df.columns) == 2:
+                sun_df.columns = ["波长_μm", "太阳辐射强度_Wm-2μm-1"]
         
-        # 大气透过率
+        # 大气透过率（核心修改：灵活列名）
         if uploaded_atm:
             try:
                 file_content = uploaded_atm.getvalue()
                 result = chardet.detect(file_content)
                 encoding = result['encoding'] or 'utf-8'
                 atm_df = pd.read_csv(BytesIO(file_content), encoding=encoding)
+                # 大气透过率文件：统一列名（第一列=波长_μm，第二列=大气透过率_τatm）
+                if len(atm_df.columns) != 2:
+                    st.error("❌ 大气透过率CSV需为两列数据（波长+透过率τ）")
+                    st.stop()
+                original_atm_cols = atm_df.columns.tolist()
+                atm_df.columns = ["波长_μm", "大气透过率_τatm"]
+                # 数值校验
+                atm_df["波长_μm"] = pd.to_numeric(atm_df["波长_μm"], errors='coerce')
+                atm_df["大气透过率_τatm"] = pd.to_numeric(atm_df["大气透过率_τatm"], errors='coerce')
+                atm_df = atm_df.dropna()
+                # 透过率范围校验（0-1）
+                atm_df["大气透过率_τatm"] = atm_df["大气透过率_τatm"].clip(0, 1)
+                if len(atm_df) == 0:
+                    st.error("❌ 大气透过率数据无有效数值")
+                    st.stop()
             except Exception as e:
                 st.error(f"自定义大气透过率文件加载失败：{str(e)}")
                 st.stop()
@@ -276,6 +310,9 @@ if calculate_btn:
                 st.error("默认大气透过率文件加载失败，请检查文件路径或上传自定义文件")
                 st.stop()
             atm_df = atm_df_default
+            # 兼容默认文件列名
+            if len(atm_df.columns) == 2:
+                atm_df.columns = ["波长_μm", "大气透过率_τatm"]
 
         # 2. 生成统一波长网格（0.25-25μm，间隔0.01μm，确保插值精度）
         lambda_grid = np.arange(lambda_min, lambda_max + 0.005, 0.01).round(2)  # 0.01μm间隔
@@ -284,9 +321,9 @@ if calculate_btn:
         # 3. 所有曲线插值到统一网格
         # 发射率插值
         eps_interp = interpolate_curve(lambda_grid, eps_df["波长_μm"], eps_df["发射率ε"], "发射率")
-        # 大气透过率插值
+        # 大气透过率插值（现在列名已经统一，不会KeyError）
         tau_atm_interp = interpolate_curve(lambda_grid, atm_df["波长_μm"], atm_df["大气透过率_τatm"], "大气透过率")
-        # 太阳辐射插值（仅白天用）
+        # 太阳辐射插值（仅白天用，列名已统一）
         sun_interp = interpolate_curve(lambda_grid, sun_df["波长_μm"], sun_df["太阳辐射强度_Wm-2μm-1"], "太阳辐射") if is_day else np.zeros_like(lambda_grid)
 
         # 4. 批量计算所有参数组合
