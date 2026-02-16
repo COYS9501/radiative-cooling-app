@@ -5,13 +5,7 @@ import matplotlib.pyplot as plt
 from scipy import integrate, interpolate
 import warnings
 warnings.filterwarnings('ignore')
-import pandas as pd
-import streamlit as st
 
-uploaded_file = st.file_uploader("上传CSV文件")
-if uploaded_file is not None:
-    # 直接读取文件内容，不需要路径
-    df = pd.read_csv(uploaded_file)
 
 # -------------------------- 全局配置 --------------------------
 # 中文字体设置
@@ -354,6 +348,7 @@ if calculate_btn:
         - 最小净制冷功率：{min_pnet:.2f} W/m²
 
         """)
+
 
 
 
