@@ -357,6 +357,15 @@ if calculate_btn:
             if len(sun_df_clean) < 2:
                 st.error("❌ 太阳辐射数据清洗后有效点数不足（<2），无法插值！请检查文件是否包含有效数值。")
                 st.stop()
+            # 清洗太阳辐射数据
+            sun_df["波长_μm"] = pd.to_numeric(sun_df["波长_μm"], errors='coerce')
+            sun_df["太阳辐射强度_Wm-2μm-1"] = pd.to_numeric(sun_df["太阳辐射强度_Wm-2μm-1"], errors='coerce')
+            sun_df_clean = sun_df.dropna(subset=["波长_μm", "太阳辐射强度_Wm-2μm-1"])
+            if len(sun_df_clean) < 2:
+                st.error("❌ 太阳辐射数据清洗后有效点数不足（<2），无法插值！请检查文件是否包含有效数值。")
+                st.stop()
+            
+            # 用清洗后的数据进行插值
             sun_interp = interpolate_curve(lambda_grid, sun_df_clean["波长_μm"], sun_df_clean["太阳辐射强度_Wm-2μm-1"], "太阳辐射")
         else:
             sun_interp = np.zeros_like(lambda_grid)
@@ -501,5 +510,6 @@ if calculate_btn:
         - 最小净制冷功率：{min_pnet:.2f} W/m²
 
         """)
+
 
 
