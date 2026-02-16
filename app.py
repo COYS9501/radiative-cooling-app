@@ -135,49 +135,73 @@ q_list = np.arange(q_min, q_max + q_step/2, q_step).round(2)
 st.sidebar.caption(f"q计算列表：{q_list} W/(m²·K)")
 
 # 1.5 发射率数据上传
-# 1.5 发射率数据上传（修复UploadedFile读取错误）
 import chardet
 import pandas as pd
 import streamlit as st
 
 st.sidebar.markdown("### 4. 辐射冷却器发射率数据（必需）")
-uploaded_eps = st.sidebar.file_uploader("上传发射率CSV（格式：波长_μm, 发射率ε）", type="csv", accept_multiple_files=False)
+uploaded_eps = st.sidebar.file_uploader(
+    "上传发射率CSV（仅需两列：第一列=波长(μm)，第二列=发射率ε，列名可自定义）", 
+    type="csv", 
+    accept_multiple_files=False
+)
 
 if uploaded_eps:
     try:
-        # ✅ 正确读取UploadedFile对象的内容（无需open()）
-        file_content = uploaded_eps.getvalue()  # 读取二进制内容
-        # 检测编码
+        # 1. 读取文件内容（修复UploadedFile报错）
+        file_content = uploaded_eps.getvalue()
         result = chardet.detect(file_content)
-        encoding = result['encoding'] or 'utf-8'  # 兜底编码
+        encoding = result['encoding'] or 'utf-8'
+        eps_df = pd.read_csv(pd.io.common.BytesIO(file_content), encoding=encoding)
         
-        # ✅ 直接用内容读取CSV（而非文件路径）
-        eps_df = pd.read_csv(
-            pd.io.common.BytesIO(file_content),  # 包装成BytesIO对象
-            encoding=encoding
-        )
-        
-        # 后续校验逻辑不变
-        required_cols = ["波长_μm", "发射率ε"]
-        if not all(col in eps_df.columns for col in required_cols):
-            st.sidebar.error(f"发射率CSV需包含列：{required_cols}，当前列名：{list(eps_df.columns)}")
+        # 2. 校验列数（必须是两列）
+        if len(eps_df.columns) != 2:
+            st.sidebar.error(f"❌ 发射率CSV需为**两列数据**（波长+发射率），当前列数：{len(eps_df.columns)}列")
             eps_df = pd.DataFrame()
         else:
-            # 额外校验：数值类型+空值
+            # 3. 重命名列（统一为波长_μm、发射率ε，忽略原列名）
+            original_cols = eps_df.columns.tolist()  # 保存原始列名用于提示
+            eps_df.columns = ["波长_μm", "发射率ε"]
+            
+            # 4. 核心数据校验（数值类型+空值+范围）
+            # 转换为数值类型，非数值转为NaN
             eps_df["波长_μm"] = pd.to_numeric(eps_df["波长_μm"], errors='coerce')
             eps_df["发射率ε"] = pd.to_numeric(eps_df["发射率ε"], errors='coerce')
-            eps_df = eps_df.dropna()  # 删除空值/非数值行
+            # 删除空值/非数值行
+            eps_df_clean = eps_df.dropna()
             
-            if len(eps_df) == 0:
-                st.sidebar.error("发射率数据无有效数值！请检查数据格式")
+            if len(eps_df_clean) == 0:
+                st.sidebar.error("❌ 数据中无有效数值！请检查：\n1. 列1是否为波长（数字）\n2. 列2是否为发射率（数字）")
                 eps_df = pd.DataFrame()
             else:
-                st.sidebar.success(f"发射率数据加载成功（{len(eps_df)}行，波长{eps_df['波长_μm'].min():.2f}-{eps_df['波长_μm'].max():.2f}μm）")
+                # 发射率范围校验（0-1）
+                eps_df_clean["发射率ε"] = eps_df_clean["发射率ε"].clip(0, 1)
+                # 波长排序
+                eps_df_clean = eps_df_clean.sort_values("波长_μm").reset_index(drop=True)
+                
+                # 5. 友好提示（告知用户列名映射规则）
+                st.sidebar.success(
+                    f"✅ 发射率数据加载成功！\n"
+                    f"📌 列名映射：\n"
+                    f"  原始列1「{original_cols[0]}」→ 波长_μm\n"
+                    f"  原始列2「{original_cols[1]}」→ 发射率ε\n"
+                    f"📊 有效数据：{len(eps_df_clean)}行\n"
+                    f"📏 波长范围：{eps_df_clean['波长_μm'].min():.2f}-{eps_df_clean['波长_μm'].max():.2f}μm\n"
+                    f"📈 发射率范围：{eps_df_clean['发射率ε'].min():.3f}-{eps_df_clean['发射率ε'].max():.3f}"
+                )
+                eps_df = eps_df_clean  # 赋值给最终的df
     except Exception as e:
-        st.sidebar.error(f"发射率数据加载失败：{str(e)}")
+        st.sidebar.error(f"❌ 发射率数据加载失败：{str(e)}")
         eps_df = pd.DataFrame()
 else:
-    st.sidebar.warning("请上传发射率CSV文件（示例格式：\n波长_μm,发射率ε\n0.3,0.1\n8.0,0.95）")
+    # 提示示例（放宽列名要求）
+    st.sidebar.warning(
+        "请上传发射率CSV文件（示例格式，列名可自定义）：\n"
+        "Wavelength,Emissivity\n"
+        "0.3,0.1\n"
+        "8.0,0.95\n"
+        "15.0,0.98"
+    )
     eps_df = pd.DataFrame()
 
 # ================================= 输出区（主页面） =================================
@@ -373,6 +397,7 @@ if calculate_btn:
         - 最小净制冷功率：{min_pnet:.2f} W/m²
 
         """)
+
 
 
 
