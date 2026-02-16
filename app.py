@@ -138,6 +138,7 @@ st.sidebar.caption(f"q计算列表：{q_list} W/(m²·K)")
 import chardet
 import pandas as pd
 import streamlit as st
+from io import BytesIO
 
 st.sidebar.markdown("### 4. 辐射冷却器发射率数据（必需）")
 uploaded_eps = st.sidebar.file_uploader(
@@ -152,7 +153,7 @@ if uploaded_eps:
         file_content = uploaded_eps.getvalue()
         result = chardet.detect(file_content)
         encoding = result['encoding'] or 'utf-8'
-        eps_df = pd.read_csv(pd.io.common.BytesIO(file_content), encoding=encoding)
+        eps_df = pd.read_csv(BytesIO(file_content), encoding=encoding)
         
         # 2. 校验列数（必须是两列）
         if len(eps_df.columns) != 2:
@@ -247,27 +248,34 @@ if calculate_btn:
         # 太阳辐射
         if uploaded_sun:
             try:
-                with open(uploaded_sun, 'rb') as f:
-                    result = chardet.detect(f.read())
-                    encoding = result['encoding']
-                sun_df = pd.read_csv(uploaded_sun, encoding=encoding)
+                file_content = uploaded_sun.getvalue()
+                result = chardet.detect(file_content)
+                encoding = result['encoding'] or 'utf-8'
+                sun_df = pd.read_csv(BytesIO(file_content), encoding=encoding)
             except Exception as e:
                 st.error(f"自定义太阳辐射文件加载失败：{str(e)}")
                 st.stop()
         else:
-            sun_df = sun_df_default if not sun_df_default.empty else st.stop()
+            if sun_df_default.empty:
+                st.error("默认太阳辐射文件加载失败，请检查文件路径或上传自定义文件")
+                st.stop()
+            sun_df = sun_df_default
+        
         # 大气透过率
         if uploaded_atm:
             try:
-                with open(uploaded_atm, 'rb') as f:
-                    result = chardet.detect(f.read())
-                    encoding = result['encoding']
-                atm_df = pd.read_csv(uploaded_atm, encoding=encoding)
+                file_content = uploaded_atm.getvalue()
+                result = chardet.detect(file_content)
+                encoding = result['encoding'] or 'utf-8'
+                atm_df = pd.read_csv(BytesIO(file_content), encoding=encoding)
             except Exception as e:
                 st.error(f"自定义大气透过率文件加载失败：{str(e)}")
                 st.stop()
         else:
-            atm_df = atm_df_default if not atm_df_default.empty else st.stop()
+            if atm_df_default.empty:
+                st.error("默认大气透过率文件加载失败，请检查文件路径或上传自定义文件")
+                st.stop()
+            atm_df = atm_df_default
 
         # 2. 生成统一波长网格（0.25-25μm，间隔0.01μm，确保插值精度）
         lambda_grid = np.arange(lambda_min, lambda_max + 0.005, 0.01).round(2)  # 0.01μm间隔
@@ -283,6 +291,10 @@ if calculate_btn:
 
         # 4. 批量计算所有参数组合
         result_list = []
+        # 预先生成插值函数，避免循环内重复创建
+        eps_interp_func = interpolate.interp1d(lambda_grid, eps_interp, bounds_error=False, fill_value='extrapolate')
+        tau_atm_interp_func = interpolate.interp1d(lambda_grid, tau_atm_interp, bounds_error=False, fill_value='extrapolate')
+        
         for tamb in tamb_list:
             for trad in trad_list:
                 for q in q_list:
@@ -290,7 +302,7 @@ if calculate_btn:
                     def p_rad_integrand(lmbda_μm):
                         lmbda_m = lmbda_μm * 1e-6  # 转换为米
                         ibb = planck_law(trad, lmbda_m)  # W/(m²·sr·m)
-                        eps = interpolate_curve([lmbda_μm], lambda_grid, eps_interp, "P_rad发射率")[0]
+                        eps = eps_interp_func(lmbda_μm)
                         return ibb * eps * np.cos(theta_rad) * 1e6  # 1e6：m→μm转换
 
                     p_rad, _ = integrate.quad(p_rad_integrand, lambda_min, lambda_max)
@@ -300,10 +312,17 @@ if calculate_btn:
                     def p_atm_integrand(lmbda_μm):
                         lmbda_m = lmbda_μm * 1e-6
                         ibb = planck_law(tamb, lmbda_m)
-                        eps = interpolate_curve([lmbda_μm], lambda_grid, eps_interp, "P_atm发射率")[0]
-                        tau_atm = interpolate_curve([lmbda_μm], lambda_grid, tau_atm_interp, "P_atm透过率")[0]
-                        eps_atm = 1 - (tau_atm ** (1 / np.cos(theta_rad))) if np.cos(theta_rad) > 1e-6 else 0.9
-                        return ibb * eps * eps_atm * np.cos(theta_rad) * 1e6
+                        eps = eps_interp_func(lmbda_μm)
+                        tau_atm = tau_atm_interp_func(lmbda_μm)
+                        # 修复除数为0的边界处理
+                        cos_theta = np.cos(theta_rad)
+                        if cos_theta < 1e-6:
+                            eps_atm = 0.9
+                        else:
+                            # 防止tau_atm为0导致负数次方报错
+                            tau_atm = max(tau_atm, 1e-8)
+                            eps_atm = 1 - (tau_atm ** (1 / cos_theta))
+                        return ibb * eps * eps_atm * cos_theta * 1e6
 
                     p_atm, _ = integrate.quad(p_atm_integrand, lambda_min, lambda_max)
                     p_atm *= 2 * np.pi
@@ -397,13 +416,3 @@ if calculate_btn:
         - 最小净制冷功率：{min_pnet:.2f} W/m²
 
         """)
-
-
-
-
-
-
-
-
-
-
