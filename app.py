@@ -299,6 +299,7 @@ if calculate_btn:
         
         sun_interp = np.zeros(len(lambda_grid), dtype=np.float64)
         if is_day:
+            sun_df["波长_μm"] = sun_df["波长_μm"] / 1000  # <-- 加这一行
             sun_interp = interpolate_curve(lambda_grid, sun_df["波长_μm"], sun_df["数值"], "太阳辐射")
 
         # 预构建插值函数
