@@ -345,6 +345,9 @@ if calculate_btn:
                         p_atm = 0.0
 
                     # 3. P_sun
+                    st.write("太阳光谱总强度：", trapezoid(sun_interp, lambda_grid))
+                    st.write("发射率平均值：", np.mean(eps_interp))
+                    st.write("波长范围：", lambda_grid.min(), "~", lambda_grid.max())
                     p_sun = 0.0
                     if is_day:
                         try:
