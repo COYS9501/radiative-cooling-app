@@ -320,7 +320,7 @@ if calculate_btn:
 
                     try:
                         p_rad_integral, _ = integrate.quad(p_rad_integrand, lambda_min, lambda_max, limit=200)
-                        p_rad = p_rad_integral * 2 * np.pi
+                        p_rad = p_rad_integral * np.pi
                     except:
                         p_rad = 0.0
 
@@ -340,7 +340,7 @@ if calculate_btn:
 
                     try:
                         p_atm_integral, _ = integrate.quad(p_atm_integrand, lambda_min, lambda_max, limit=200)
-                        p_atm = p_atm_integral * 2 * np.pi
+                        p_atm = p_atm_integral * np.pi
                     except:
                         p_atm = 0.0
 
