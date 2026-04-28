@@ -126,35 +126,6 @@ def interpolate_curve(x_target, x_source, y_source, desc):
     except Exception as e:
         return np.zeros(len(x_target), dtype=np.float64)
 
-# ================================= 新增通用函数开始 =================================
-def get_safe_wavelength_range(dataframe_list):
-    """
-    通用工具函数：自动计算多个光谱DataFrame的安全重叠波长范围
-    
-    参数:
-        dataframe_list: list of pd.DataFrame，每个DataFrame必须包含"波长_μm"列
-    
-    返回:
-        (safe_min, safe_max): 安全的最小/最大波长
-    """
-    lambda_mins = []
-    lambda_maxs = []
-    
-    for df in dataframe_list:
-        if len(df) > 0:
-            lambda_mins.append(df["波长_μm"].min())
-            lambda_maxs.append(df["波长_μm"].max())
-    
-    if not lambda_mins or not lambda_maxs:
-        return 0.25, 25.0  # 兜底默认值
-    
-    # 安全范围 = 所有数据的【最大起始波长】到【最小结束波长】
-    safe_min = max(lambda_mins)
-    safe_max = min(lambda_maxs)
-    
-    return safe_min, safe_max
-# ================================= 新增通用函数结束 =================================
-
 # -------------------------- UI页面 --------------------------
 st.title("🌞 辐射制冷净功率自动计算系统")
 st.markdown("---")
@@ -316,7 +287,7 @@ if calculate_btn:
         # 数据预处理
         atm_df["数值"] = atm_df["数值"].clip(0.0, 1.0)
         
-        # 生成波长网格（保留原代码，用于插值函数构建）
+        # 生成波长网格
         lambda_grid = np.arange(lambda_min, lambda_max + 0.005, 0.01).round(2)
         lambda_grid = np.asarray(lambda_grid, dtype=np.float64).flatten()
         
@@ -338,25 +309,19 @@ if calculate_btn:
         for tamb in tamb_list:
             for trad in trad_list:
                 for q in q_list:
-                    # 1. P_rad（修正：积分系数+自动波长范围）
+                    # 1. P_rad（修正1：积分系数从2π改为π）
                     def p_rad_integrand(lmbda_μm):
                         lmbda_m = lmbda_μm * 1e-6
                         L_λ = planck_law(trad, lmbda_m)
                         eps = eps_interp_func(lmbda_μm)
                         return L_λ * eps * cos_theta * 1e-6
                     try:
-                        # ================================= 修改开始 =================================
-                        # 🔒 自动找发射率的安全波长范围
-                        rad_safe_min, rad_safe_max = get_safe_wavelength_range([eps_df])
-                        
-                        # 只在安全范围内积分 + 修正系数为np.pi
-                        p_rad_integral, _ = integrate.quad(p_rad_integrand, rad_safe_min, rad_safe_max, limit=200)
-                        p_rad = p_rad_integral * np.pi
-                        # ================================= 修改结束 =================================
+                        p_rad_integral, _ = integrate.quad(p_rad_integrand, lambda_min, lambda_max, limit=200)
+                        p_rad = p_rad_integral * np.pi  # ✅ 修正1：2π→π
                     except:
                         p_rad = 0.0
                     
-                    # 2. P_atm（修正：积分系数+自动波长范围）
+                    # 2. P_atm（修正1：积分系数从2π改为π，其他逻辑完全不动）
                     def p_atm_integrand(lmbda_μm):
                         lmbda_m = lmbda_μm * 1e-6
                         L_λ = planck_law(tamb, lmbda_m)
@@ -370,40 +335,27 @@ if calculate_btn:
                             eps_atm = 1 - (tau_atm ** (1 / cos_theta))
                         return L_λ * eps * eps_atm * cos_theta * 1e-6
                     try:
-                        # ================================= 修改开始 =================================
-                        # 🔒 自动找大气和发射率的安全重叠波长范围
-                        atm_safe_min, atm_safe_max = get_safe_wavelength_range([atm_df, eps_df])
-                        
-                        # 只在安全范围内积分 + 修正系数为np.pi
-                        p_atm_integral, _ = integrate.quad(p_atm_integrand, atm_safe_min, atm_safe_max, limit=200)
-                        p_atm = p_atm_integral * np.pi
-                        # ================================= 修改结束 =================================
+                        p_atm_integral, _ = integrate.quad(p_atm_integrand, lambda_min, lambda_max, limit=200)
+                        p_atm = p_atm_integral * np.pi  # ✅ 修正1：2π→π
                     except:
                         p_atm = 0.0
                     
-                    # 3. P_sun（修正：自动波长匹配+强制非负）
+                    # 3. P_sun（修正2：单独处理，防止外推负值）
                     p_sun = 0.0
                     if is_day:
                         try:
-                            # ================================= 修改开始 =================================
-                            # 🔒 自动找太阳和发射率的安全重叠波长范围
-                            sun_safe_min, sun_safe_max = get_safe_wavelength_range([sun_df, eps_df])
-                            sun_safe_max = min(sun_safe_max, 2.5)  # 额外优化：太阳99%能量在2.5μm以下
-                            
-                            # 生成安全波长网格
+                            # ✅ 修正2：只在太阳数据真实范围内计算，强制非负
+                            sun_safe_min = sun_df["波长_μm"].min()
+                            sun_safe_max = min(sun_df["波长_μm"].max(), 2.5)
                             sun_lambda_grid = np.arange(sun_safe_min, sun_safe_max + 0.005, 0.01).round(2)
                             
-                            # 在安全网格上插值
                             sun_interp_safe = interpolate_curve(sun_lambda_grid, sun_df["波长_μm"], sun_df["数值"], "太阳辐射(安全)")
                             eps_interp_safe = interpolate_curve(sun_lambda_grid, eps_df["波长_μm"], eps_df["数值"], "发射率(安全)")
                             
-                            # 强制非负，双重保险
                             sun_interp_safe = np.clip(sun_interp_safe, 0.0, None)
                             eps_interp_safe = np.clip(eps_interp_safe, 0.0, 1.0)
                             
-                            # 只在安全范围内积分
                             p_sun = trapezoid(sun_interp_safe * eps_interp_safe, sun_lambda_grid)
-                            # ================================= 修改结束 =================================
                         except:
                             p_sun = 0.0
                     
