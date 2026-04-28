@@ -142,7 +142,7 @@ theta_deg = st.sidebar.number_input(
 theta_rad = np.radians(theta_deg)
 cos_theta = np.cos(theta_rad)
 
-# 波长范围
+# 波长范围（保留UI，但实际计算会根据数据自动调整）
 lambda_min = st.sidebar.number_input(
     "波长下限（μm）", value=0.25, step=0.1, min_value=0.2, max_value=5.0
 )
@@ -170,9 +170,8 @@ st.sidebar.markdown("### 3. 计算模式与温度")
 day_night = st.sidebar.radio("计算模式", ["白天（含太阳辐射）", "夜晚（无太阳辐射）"], index=0)
 is_day = (day_night == "白天（含太阳辐射）")
 
-# --- 修改点3：Tamb改为固定值，分昼夜自动切换默认值 ---
+# 环境温度Tamb
 st.sidebar.subheader("环境温度 Tamb")
-# 白天默认30°C (303.15K)，晚上默认15°C (288.15K)
 default_tamb_k = c_to_k(30.0) if is_day else c_to_k(15.0)
 default_tamb_c = k_to_c(default_tamb_k)
 tamb_k = st.sidebar.number_input(
@@ -180,10 +179,10 @@ tamb_k = st.sidebar.number_input(
     value=default_tamb_k, step=0.5, min_value=200.0, max_value=350.0,
     help=f"默认值：{default_tamb_c:.1f}°C ({default_tamb_k:.2f}K)"
 )
-tamb_list = np.array([tamb_k]) # 只有一个值，但保持数组格式兼容代码
+tamb_list = np.array([tamb_k])
 st.sidebar.caption(f"当前温度：{k_to_c(tamb_k):.2f}°C")
 
-# --- 修改点4：Trad无限制扫描，默认273-313K，步长5K ---
+# 冷却器温度Trad
 st.sidebar.subheader("冷却器温度 Trad（扫描范围）")
 trad_min = st.sidebar.number_input(
     "Trad最小值（K）", value=273.0, step=1.0,
@@ -224,7 +223,6 @@ if uploaded_eps:
         st.sidebar.error(eps_status)
 
 # ================================= 主页面：数据加载状态展示 & 计算 =================================
-# --- 修改点2：在主界面明确展示默认数据文件的加载状态 ---
 st.markdown("### 📂 内置数据文件状态")
 col1, col2 = st.columns(2)
 
@@ -287,11 +285,11 @@ if calculate_btn:
         # 数据预处理
         atm_df["数值"] = atm_df["数值"].clip(0.0, 1.0)
         
-        # 生成波长网格
+        # 生成全波长网格（用于构建插值函数）
         lambda_grid = np.arange(lambda_min, lambda_max + 0.005, 0.01).round(2)
         lambda_grid = np.asarray(lambda_grid, dtype=np.float64).flatten()
         
-        # 插值
+        # 全波段插值（用于构建插值函数）
         eps_interp = interpolate_curve(lambda_grid, eps_df["波长_μm"], eps_df["数值"], "发射率")
         tau_atm_interp = interpolate_curve(lambda_grid, atm_df["波长_μm"], atm_df["数值"], "大气透过率")
         
@@ -305,23 +303,27 @@ if calculate_btn:
         
         # 批量计算
         result_list = []
-        # 注意：tamb_list现在只有一个值
         for tamb in tamb_list:
             for trad in trad_list:
                 for q in q_list:
-                    # 1. P_rad（修正1：积分系数从2π改为π）
+                    # ================================= 1. P_rad（材料辐射）修复开始 =================================
                     def p_rad_integrand(lmbda_μm):
                         lmbda_m = lmbda_μm * 1e-6
                         L_λ = planck_law(trad, lmbda_m)
                         eps = eps_interp_func(lmbda_μm)
                         return L_λ * eps * cos_theta * 1e-6
                     try:
-                        p_rad_integral, _ = integrate.quad(p_rad_integrand, lambda_min, lambda_max, limit=200)
-                        p_rad = p_rad_integral * np.pi  # ✅ 修正1：2π→π
+                        # 🔒 严格限定：只在发射率数据实际范围内计算
+                        rad_safe_min = eps_df["波长_μm"].min()
+                        rad_safe_max = eps_df["波长_μm"].max()
+                        
+                        p_rad_integral, _ = integrate.quad(p_rad_integrand, rad_safe_min, rad_safe_max, limit=200)
+                        p_rad = p_rad_integral * np.pi  # ✅ 保持你确认正确的 np.pi
                     except:
                         p_rad = 0.0
+                    # ================================= P_rad 修复结束 =================================
                     
-                    # 2. P_atm（修正1：积分系数从2π改为π，其他逻辑完全不动）
+                    # ================================= 2. P_atm（大气逆辐射）修复开始 =================================
                     def p_atm_integrand(lmbda_μm):
                         lmbda_m = lmbda_μm * 1e-6
                         L_λ = planck_law(tamb, lmbda_m)
@@ -335,34 +337,45 @@ if calculate_btn:
                             eps_atm = 1 - (tau_atm ** (1 / cos_theta))
                         return L_λ * eps * eps_atm * cos_theta * 1e-6
                     try:
-                        p_atm_integral, _ = integrate.quad(p_atm_integrand, lambda_min, lambda_max, limit=200)
-                        p_atm = p_atm_integral * np.pi  # ✅ 修正1：2π→π
+                        # 🔒 严格限定：只在大气+发射率数据的重叠范围内计算（消除外推误差）
+                        atm_safe_min = max(atm_df["波长_μm"].min(), eps_df["波长_μm"].min())
+                        atm_safe_max = min(atm_df["波长_μm"].max(), eps_df["波长_μm"].max())
+                        
+                        p_atm_integral, _ = integrate.quad(p_atm_integrand, atm_safe_min, atm_safe_max, limit=200)
+                        p_atm = p_atm_integral * np.pi  # ✅ 保持你确认正确的 np.pi
                     except:
                         p_atm = 0.0
+                    # ================================= P_atm 修复结束 =================================
                     
-                    # 3. P_sun（修正2：单独处理，防止外推负值）
+                    # ================================= 3. P_sun（太阳辐射）修复开始 =================================
                     p_sun = 0.0
                     if is_day:
                         try:
-                            # ✅ 修正2：只在太阳数据真实范围内计算，强制非负
-                            sun_safe_min = sun_df["波长_μm"].min()
-                            sun_safe_max = min(sun_df["波长_μm"].max(), 2.5)
+                            # 🔒 严格限定：只在太阳数据实际范围0.28~4.0μm计算（包含所有给定数据）
+                            sun_safe_min = sun_df["波长_μm"].min()  # 自动读取：你的数据是0.28
+                            sun_safe_max = sun_df["波长_μm"].max()  # 自动读取：你的数据是4.0
+                            
+                            # 生成完全包含所有太阳数据的波长网格
                             sun_lambda_grid = np.arange(sun_safe_min, sun_safe_max + 0.005, 0.01).round(2)
                             
-                            sun_interp_safe = interpolate_curve(sun_lambda_grid, sun_df["波长_μm"], sun_df["数值"], "太阳辐射(安全)")
-                            eps_interp_safe = interpolate_curve(sun_lambda_grid, eps_df["波长_μm"], eps_df["数值"], "发射率(安全)")
+                            # 在真实数据范围内插值（无外推）
+                            sun_interp_real = interpolate_curve(sun_lambda_grid, sun_df["波长_μm"], sun_df["数值"], "太阳辐射(真实范围)")
+                            eps_interp_real = interpolate_curve(sun_lambda_grid, eps_df["波长_μm"], eps_df["数值"], "发射率(太阳范围)")
                             
-                            sun_interp_safe = np.clip(sun_interp_safe, 0.0, None)
-                            eps_interp_safe = np.clip(eps_interp_safe, 0.0, 1.0)
+                            # 强制非负（双重保险）
+                            sun_interp_real = np.clip(sun_interp_real, 0.0, None)
+                            eps_interp_real = np.clip(eps_interp_real, 0.0, 1.0)
                             
-                            p_sun = trapezoid(sun_interp_safe * eps_interp_safe, sun_lambda_grid)
+                            # 只在真实数据范围内积分
+                            p_sun = trapezoid(sun_interp_real * eps_interp_real, sun_lambda_grid)
                         except:
                             p_sun = 0.0
+                    # ================================= P_sun 修复结束 =================================
                     
-                    # 4. P_cond_conv
+                    # 4. P_cond_conv（非辐射损失）
                     p_cond_conv = q * (tamb - trad)
                     
-                    # 5. P_net
+                    # 5. P_net（净制冷功率）
                     p_net = p_rad - p_atm - p_sun - p_cond_conv
                     
                     result_list.append({
@@ -386,7 +399,7 @@ if calculate_btn:
         with st.expander("查看完整数据表格", expanded=True):
             st.dataframe(result_df, use_container_width=True, height=400)
         
-        # --- 修改点1：图表乱码终极修复，增加英文备选方案 ---
+        # 图表展示
         st.markdown("### 📊 不同q值净功率对比曲线")
         
         fig, ax = plt.subplots(figsize=(10, 6))
@@ -399,18 +412,18 @@ if calculate_btn:
                     plot_data["冷却器温度Trad(K)"], 
                     plot_data["净制冷功率P_net(W/m²)"],
                     'o-', color=color_cycle(idx), linewidth=2, markersize=6,
-                    label=f"q={q} $W/(m^2 \cdot K)$"  # 使用LaTeX或纯英文避免乱码
+                    label=f"q={q} $W/(m^2 \cdot K)$"
                 )
         
-        ax.axhline(y=0, color='black', linestyle='--', alpha=0.7, linewidth=1.5, label="Cooling Threshold")
+        ax.axhline(y=0, color='black', linestyle='--', alpha=0.7, linewidth=1.5, label="制冷/不制冷分界")
         
-        # 图表标签：如果中文字体不可用，自动降级为英文
+        # 图表标签（英文优先，避免乱码）
         try:
             ax.set_xlabel("Radiative Cooler Temperature Trad (K)", fontsize=12)
             ax.set_ylabel("Net Cooling Power P_net (W/m²)", fontsize=12)
             ax.set_title(f"{day_night.split('（')[0]}: P_net vs Trad (Tamb={tamb_k:.2f}K)", fontsize=14, fontweight='bold')
         except:
-            pass # 如果设置失败也不报错
+            pass
             
         ax.legend(fontsize=10, bbox_to_anchor=(1.01, 1), loc='upper left')
         ax.grid(alpha=0.3)
