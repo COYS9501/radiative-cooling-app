@@ -7,6 +7,7 @@ import warnings
 import os
 warnings.filterwarnings('ignore')
 from io import BytesIO
+
 # -------------------------- 全局配置 & 图表乱码终极修复 --------------------------
 # 方案1：尝试系统中可用的中文字体
 def get_chinese_font():
@@ -26,29 +27,35 @@ def get_chinese_font():
         if name in system_fonts:
             return name
     return 'DejaVu Sans'
+
 # 应用字体配置
 CHINESE_FONT = get_chinese_font()
 plt.rcParams['font.sans-serif'] = [CHINESE_FONT]
 plt.rcParams['axes.unicode_minus'] = False  # 解决负号显示问题
 plt.rcParams['figure.dpi'] = 120  # 提高图表清晰度
+
 # 物理常数（固定不变，行业标准值）
 H_PLANCK = 6.62607015e-34  # J·s
 C_LIGHT = 299792458        # m/s
 K_BOLTZMANN = 1.380649e-23 # J/K
 SIGMA_STEFAN = 5.670374419e-8 # W/(m²·K^4)
+
 # 温度转换便捷函数
 def c_to_k(c):
     return c + 273.15
 def k_to_c(k):
     return k - 273.15
+
 # scipy版本全兼容
 try:
     from scipy.integrate import trapezoid
 except ImportError:
     from scipy.integrate import trapz as trapezoid
+
 # 默认数据文件路径
 DEFAULT_SUN_FILE = 'AM15太阳辐射_处理后.csv'
 DEFAULT_ATM_FILE = '大气透过率_处理后.csv'
+
 # -------------------------- 核心函数 --------------------------
 import chardet
 def load_and_clean_csv(file_path_or_buffer, desc, required_cols=2):
@@ -85,6 +92,7 @@ def load_and_clean_csv(file_path_or_buffer, desc, required_cols=2):
     
     except Exception as e:
         return pd.DataFrame(), f"❌ 加载失败：{str(e)}"
+
 def planck_law(T_rad, lmbda_m):
     lmbda_m = np.maximum(lmbda_m, 1e-20)
     exponent = H_PLANCK * C_LIGHT / (lmbda_m * K_BOLTZMANN * np.maximum(T_rad, 1e-10))
@@ -93,6 +101,7 @@ def planck_law(T_rad, lmbda_m):
     denominator = np.exp(exponent) - 1
     denominator = np.maximum(denominator, 1e-10)
     return numerator / denominator
+
 def interpolate_curve(x_target, x_source, y_source, desc):
     try:
         x_target = np.asarray(x_target, dtype=np.float64).flatten()
@@ -117,46 +126,14 @@ def interpolate_curve(x_target, x_source, y_source, desc):
     except Exception as e:
         return np.zeros(len(x_target), dtype=np.float64)
 
-# ==================== 【新增】通用：计算多数据集的波长交集范围 ====================
-def get_valid_wavelength_intersection(dataframes, user_lambda_min, user_lambda_max):
-    """
-    计算多个DataFrame波长范围的交集，并与用户设定的波长范围取交集
-    
-    参数:
-        dataframes: list of pd.DataFrame，每个DataFrame必须包含"波长_μm"列
-        user_lambda_min: float，用户设定的波长下限
-        user_lambda_max: float，用户设定的波长上限
-    
-    返回:
-        (valid_min, valid_max): tuple，有效波长范围的上下限；若无交集返回(None, None)
-    """
-    # 初始化交集范围为用户设定范围
-    valid_min = user_lambda_min
-    valid_max = user_lambda_max
-    
-    for df in dataframes:
-        if df is None or len(df) < 2:
-            return (None, None)
-        
-        # 获取当前DataFrame的波长范围
-        df_min = df["波长_μm"].min()
-        df_max = df["波长_μm"].max()
-        
-        # 更新交集范围
-        valid_min = max(valid_min, df_min)
-        valid_max = min(valid_max, df_max)
-        
-        # 提前终止：若无交集直接返回
-        if valid_min >= valid_max:
-            return (None, None)
-    
-    return (valid_min, valid_max)
 # -------------------------- UI页面 --------------------------
 st.title("🌞 辐射制冷净功率自动计算系统")
 st.markdown("---")
+
 # 侧边栏参数配置
 st.sidebar.title("🔧 计算参数配置")
 st.sidebar.markdown("### 1. 基础参数")
+
 # 入射角
 theta_deg = st.sidebar.number_input(
     "入射角 θ（度）",
@@ -164,6 +141,7 @@ theta_deg = st.sidebar.number_input(
 )
 theta_rad = np.radians(theta_deg)
 cos_theta = np.cos(theta_rad)
+
 # 波长范围
 lambda_min = st.sidebar.number_input(
     "波长下限（μm）", value=0.25, step=0.1, min_value=0.2, max_value=5.0
@@ -171,22 +149,27 @@ lambda_min = st.sidebar.number_input(
 lambda_max = st.sidebar.number_input(
     "波长上限（μm）", value=25.0, step=1.0, min_value=10.0, max_value=30.0
 )
+
 # 数据文件配置
 st.sidebar.markdown("### 2. 数据文件（支持自定义上传）")
+
 # 太阳辐射数据
 st.sidebar.subheader("太阳辐射数据（AM1.5）")
 uploaded_sun = st.sidebar.file_uploader(
     "上传自定义太阳辐射CSV", type="csv", key="sun_upload"
 )
+
 # 大气透过率数据
 st.sidebar.subheader("大气透过率数据")
 uploaded_atm = st.sidebar.file_uploader(
     "上传自定义大气透过率CSV", type="csv", key="atm_upload"
 )
+
 # 计算模式与温度参数
 st.sidebar.markdown("### 3. 计算模式与温度")
 day_night = st.sidebar.radio("计算模式", ["白天（含太阳辐射）", "夜晚（无太阳辐射）"], index=0)
 is_day = (day_night == "白天（含太阳辐射）")
+
 # --- 修改点3：Tamb改为固定值，分昼夜自动切换默认值 ---
 st.sidebar.subheader("环境温度 Tamb")
 # 白天默认30°C (303.15K)，晚上默认15°C (288.15K)
@@ -199,6 +182,7 @@ tamb_k = st.sidebar.number_input(
 )
 tamb_list = np.array([tamb_k]) # 只有一个值，但保持数组格式兼容代码
 st.sidebar.caption(f"当前温度：{k_to_c(tamb_k):.2f}°C")
+
 # --- 修改点4：Trad无限制扫描，默认273-313K，步长5K ---
 st.sidebar.subheader("冷却器温度 Trad（扫描范围）")
 trad_min = st.sidebar.number_input(
@@ -214,18 +198,21 @@ trad_step = st.sidebar.number_input(
 )
 trad_list = np.arange(trad_min, trad_max + trad_step/2, trad_step).round(2)
 st.sidebar.caption(f"Trad扫描列表：{trad_list} K")
+
 # 对流换热系数q
 st.sidebar.subheader("对流换热系数 q（W/(m²·K)）")
 q_min = st.sidebar.number_input("q最小值", value=3.0, step=0.5, min_value=0.0, max_value=20.0)
 q_max = st.sidebar.number_input("q最大值", value=8.0, step=0.5, min_value=q_min, max_value=20.0)
 q_step = st.sidebar.number_input("q步长", value=1.0, step=0.5, min_value=0.5, max_value=5.0)
 q_list = np.arange(q_min, q_max + q_step/2, q_step).round(2)
+
 # 发射率数据（必需）
 st.sidebar.markdown("### 4. 冷却器发射率数据（必需）")
 uploaded_eps = st.sidebar.file_uploader(
     "上传发射率CSV（两列：波长μm、发射率0-1）",
     type="csv", key="eps_upload"
 )
+
 # 处理发射率数据
 eps_df = pd.DataFrame()
 if uploaded_eps:
@@ -235,10 +222,12 @@ if uploaded_eps:
         st.sidebar.success(f"{eps_status}")
     else:
         st.sidebar.error(eps_status)
+
 # ================================= 主页面：数据加载状态展示 & 计算 =================================
 # --- 修改点2：在主界面明确展示默认数据文件的加载状态 ---
 st.markdown("### 📂 内置数据文件状态")
 col1, col2 = st.columns(2)
+
 # 太阳辐射数据状态
 with col1:
     if uploaded_sun:
@@ -247,6 +236,7 @@ with col1:
     else:
         sun_df, sun_status = load_and_clean_csv(DEFAULT_SUN_FILE, "默认太阳辐射", required_cols=2)
         st.markdown(f"**☀️ 太阳辐射数据**\n- 状态：{sun_status}\n- 来源：内置默认文件 (AM1.5)")
+
 # 大气透过率数据状态
 with col2:
     if uploaded_atm:
@@ -255,6 +245,7 @@ with col2:
     else:
         atm_df, atm_status = load_and_clean_csv(DEFAULT_ATM_FILE, "默认大气透过率", required_cols=2)
         st.markdown(f"**🌫️ 大气透过率数据**\n- 状态：{atm_status}\n- 来源：内置默认文件")
+
 # 检查数据有效性
 data_valid = True
 if len(sun_df) == 0:
@@ -266,7 +257,9 @@ if len(atm_df) == 0:
 if len(eps_df) == 0:
     st.warning("⚠️ 请上传发射率CSV文件")
     data_valid = False
+
 st.markdown("---")
+
 # 计算条件汇总
 st.markdown("### 📊 计算条件汇总")
 with st.expander("点击查看详细参数", expanded=True):
@@ -285,18 +278,30 @@ with st.expander("点击查看详细参数", expanded=True):
         ]
     }
     st.dataframe(pd.DataFrame(cond_data), use_container_width=True)
+
 # 计算按钮
 calculate_btn = st.button("🚀 开始计算", disabled=not data_valid)
+
 if calculate_btn:
     with st.spinner("正在计算中..."):
         # 数据预处理
         atm_df["数值"] = atm_df["数值"].clip(0.0, 1.0)
         
-        # 预构建全局插值函数（用于后续各功率项计算）
-        eps_interp_func_global = interpolate.interp1d(eps_df["波长_μm"], eps_df["数值"], bounds_error=False, fill_value='extrapolate')
-        tau_atm_interp_func_global = interpolate.interp1d(atm_df["波长_μm"], atm_df["数值"], bounds_error=False, fill_value='extrapolate')
+        # 生成波长网格
+        lambda_grid = np.arange(lambda_min, lambda_max + 0.005, 0.01).round(2)
+        lambda_grid = np.asarray(lambda_grid, dtype=np.float64).flatten()
+        
+        # 插值
+        eps_interp = interpolate_curve(lambda_grid, eps_df["波长_μm"], eps_df["数值"], "发射率")
+        tau_atm_interp = interpolate_curve(lambda_grid, atm_df["波长_μm"], atm_df["数值"], "大气透过率")
+        
+        sun_interp = np.zeros(len(lambda_grid), dtype=np.float64)
         if is_day:
-            sun_interp_func_global = interpolate.interp1d(sun_df["波长_μm"], sun_df["数值"], bounds_error=False, fill_value='extrapolate')
+            sun_interp = interpolate_curve(lambda_grid, sun_df["波长_μm"], sun_df["数值"], "太阳辐射")
+        
+        # 预构建插值函数
+        eps_interp_func = interpolate.interp1d(lambda_grid, eps_interp, bounds_error=False, fill_value='extrapolate')
+        tau_atm_interp_func = interpolate.interp1d(lambda_grid, tau_atm_interp, bounds_error=False, fill_value='extrapolate')
         
         # 批量计算
         result_list = []
@@ -304,83 +309,57 @@ if calculate_btn:
         for tamb in tamb_list:
             for trad in trad_list:
                 for q in q_list:
-                    # ==================== 1. P_rad：仅在【发射率】与【用户设定】的波长交集内计算 ====================
-                    p_rad = 0.0
-                    rad_valid_min, rad_valid_max = get_valid_wavelength_intersection(
-                        dataframes=[eps_df],
-                        user_lambda_min=lambda_min,
-                        user_lambda_max=lambda_max
-                    )
-                    if rad_valid_min is not None and rad_valid_max is not None:
-                        def p_rad_integrand(lmbda_μm):
-                            lmbda_m = lmbda_μm * 1e-6
-                            L_λ = planck_law(trad, lmbda_m)
-                            eps = eps_interp_func_global(lmbda_μm)
-                            return L_λ * eps * cos_theta * 1e-6
-                        try:
-                            p_rad_integral, _ = integrate.quad(p_rad_integrand, rad_valid_min, rad_valid_max, limit=200)
-                            p_rad = p_rad_integral * np.pi
-                        except:
-                            p_rad = 0.0
+                    # 1. P_rad（修正1：积分系数从2π改为π）
+                    def p_rad_integrand(lmbda_μm):
+                        lmbda_m = lmbda_μm * 1e-6
+                        L_λ = planck_law(trad, lmbda_m)
+                        eps = eps_interp_func(lmbda_μm)
+                        return L_λ * eps * cos_theta * 1e-6
+                    try:
+                        p_rad_integral, _ = integrate.quad(p_rad_integrand, lambda_min, lambda_max, limit=200)
+                        p_rad = p_rad_integral * np.pi  # ✅ 修正1：2π→π
+                    except:
+                        p_rad = 0.0
                     
-                    # ==================== 2. P_atm：仅在【发射率+大气透过率】与【用户设定】的波长交集内计算 ====================
-                    p_atm = 0.0
-                    atm_valid_min, atm_valid_max = get_valid_wavelength_intersection(
-                        dataframes=[eps_df, atm_df],
-                        user_lambda_min=lambda_min,
-                        user_lambda_max=lambda_max
-                    )
-                    if atm_valid_min is not None and atm_valid_max is not None:
-                        def p_atm_integrand(lmbda_μm):
-                            lmbda_m = lmbda_μm * 1e-6
-                            L_λ = planck_law(tamb, lmbda_m)
-                            eps = eps_interp_func_global(lmbda_μm)
-                            tau_atm = tau_atm_interp_func_global(lmbda_μm)
-                            
-                            if cos_theta < 1e-6:
-                                eps_atm = 0.9
-                            else:
-                                tau_atm = max(tau_atm, 1e-8)
-                                eps_atm = 1 - (tau_atm ** (1 / cos_theta))
-                            return L_λ * eps * eps_atm * cos_theta * 1e-6
-                        try:
-                            p_atm_integral, _ = integrate.quad(p_atm_integrand, atm_valid_min, atm_valid_max, limit=200)
-                            p_atm = p_atm_integral * np.pi
-                        except:
-                            p_atm = 0.0
+                    # 2. P_atm（修正1：积分系数从2π改为π，其他逻辑完全不动）
+                    def p_atm_integrand(lmbda_μm):
+                        lmbda_m = lmbda_μm * 1e-6
+                        L_λ = planck_law(tamb, lmbda_m)
+                        eps = eps_interp_func(lmbda_μm)
+                        tau_atm = tau_atm_interp_func(lmbda_μm)
+                        
+                        if cos_theta < 1e-6:
+                            eps_atm = 0.9
+                        else:
+                            tau_atm = max(tau_atm, 1e-8)
+                            eps_atm = 1 - (tau_atm ** (1 / cos_theta))
+                        return L_λ * eps * eps_atm * cos_theta * 1e-6
+                    try:
+                        p_atm_integral, _ = integrate.quad(p_atm_integrand, lambda_min, lambda_max, limit=200)
+                        p_atm = p_atm_integral * np.pi  # ✅ 修正1：2π→π
+                    except:
+                        p_atm = 0.0
                     
-                    # ==================== 3. P_sun：仅在【太阳辐射+发射率】与【用户设定+≤2.5μm】的波长交集内计算 ====================
+                    # 3. P_sun（修正2：单独处理，防止外推负值）
                     p_sun = 0.0
                     if is_day:
-                        # 先获取太阳辐射+发射率+用户设定的交集
-                        sun_base_valid_min, sun_base_valid_max = get_valid_wavelength_intersection(
-                            dataframes=[sun_df, eps_df],
-                            user_lambda_min=lambda_min,
-                            user_lambda_max=lambda_max
-                        )
-                        # 再额外限制太阳辐射上限≤2.5μm
-                        if sun_base_valid_min is not None and sun_base_valid_max is not None:
-                            sun_valid_min = sun_base_valid_min
-                            sun_valid_max = min(sun_base_valid_max, 2.5)
+                        try:
+                            # ✅ 修正2：只在太阳数据真实范围内计算，强制非负
+                            sun_safe_min = sun_df["波长_μm"].min()
+                            sun_safe_max = min(sun_df["波长_μm"].max(), 2.5)
+                            sun_lambda_grid = np.arange(sun_safe_min, sun_safe_max + 0.005, 0.01).round(2)
                             
-                            if sun_valid_min < sun_valid_max:
-                                try:
-                                    # 在有效交集范围内生成网格
-                                    sun_lambda_grid = np.arange(sun_valid_min, sun_valid_max + 0.005, 0.01).round(2)
-                                    
-                                    # 插值并强制非负
-                                    sun_interp_safe = interpolate_curve(sun_lambda_grid, sun_df["波长_μm"], sun_df["数值"], "太阳辐射(安全)")
-                                    eps_interp_safe = interpolate_curve(sun_lambda_grid, eps_df["波长_μm"], eps_df["数值"], "发射率(安全)")
-                                    
-                                    sun_interp_safe = np.clip(sun_interp_safe, 0.0, None)
-                                    eps_interp_safe = np.clip(eps_interp_safe, 0.0, 1.0)
-                                    
-                                    # 梯形积分
-                                    p_sun = trapezoid(sun_interp_safe * eps_interp_safe, sun_lambda_grid)
-                                except:
-                                    p_sun = 0.0
+                            sun_interp_safe = interpolate_curve(sun_lambda_grid, sun_df["波长_μm"], sun_df["数值"], "太阳辐射(安全)")
+                            eps_interp_safe = interpolate_curve(sun_lambda_grid, eps_df["波长_μm"], eps_df["数值"], "发射率(安全)")
+                            
+                            sun_interp_safe = np.clip(sun_interp_safe, 0.0, None)
+                            eps_interp_safe = np.clip(eps_interp_safe, 0.0, 1.0)
+                            
+                            p_sun = trapezoid(sun_interp_safe * eps_interp_safe, sun_lambda_grid)
+                        except:
+                            p_sun = 0.0
                     
-                    # 4. P_cond_conv（无需修改，与波长无关）
+                    # 4. P_cond_conv
                     p_cond_conv = q * (tamb - trad)
                     
                     # 5. P_net
